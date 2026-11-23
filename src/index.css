@@ -1,0 +1,42 @@
+@import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+  html {
+    font-family: "Hind Siliguri", "Plus Jakarta Sans", system-ui, sans-serif;
+    scroll-behavior: smooth;
+  }
+
+  .font-display {
+    font-family: "Plus Jakarta Sans", "Hind Siliguri", system-ui, sans-serif;
+  }
+
+  .font-mono-tabular {
+    font-family: "IBM Plex Mono", monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes riverFlow {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.river-flow-animate {
+  stroke-dasharray: 7 5;
+  animation: riverFlow 1.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .river-flow-animate {
+    animation: none;
+    stroke-dasharray: none;
+  }
+  html {
+    scroll-behavior: auto;
+  }
+}

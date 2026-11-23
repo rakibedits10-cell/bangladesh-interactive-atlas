@@ -1,0 +1,6 @@
+{
+  "name": "Bangladesh Interactive Atlas",
+  "description": "Interactive map of all 64 districts and 8 divisions of Bangladesh with directional regions, bordering district highlighting, major river flows, and detailed district facts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
