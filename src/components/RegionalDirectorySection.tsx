@@ -2,22 +2,27 @@ import React, { useMemo, useState } from 'react';
 import { Waves, ArrowUpRight, Search, X, ArrowLeft } from 'lucide-react';
 import { DIVISION_META } from '../data/bdDistrictDetails';
 import { RIVER_DETAILS } from '../data/bdRiverDetails';
-import type { GeoDistrict, GeoRiver, Lang } from '../types/map';
+import { formatNum } from '../utils/format';
+import type { GeoDistrict, GeoRiver, GeoUpazila, Lang } from '../types/map';
 
 interface DivisionsDirectoryPageProps {
   districts: GeoDistrict[];
+  upazilas: GeoUpazila[];
   selectedDistrictId: string | null;
   lang: Lang;
   onSelectDistrictOnMap: (id: string) => void;
+  onSelectUpazilaOnMap: (id: string) => void;
   onSelectDivisionOnMap: (divisionId: string) => void;
   onBackToMap: () => void;
 }
 
 export const DivisionsDirectoryPage: React.FC<DivisionsDirectoryPageProps> = ({
   districts,
+  upazilas,
   selectedDistrictId,
   lang,
   onSelectDistrictOnMap,
+  onSelectUpazilaOnMap,
   onSelectDivisionOnMap,
   onBackToMap,
 }) => {
@@ -25,6 +30,10 @@ export const DivisionsDirectoryPage: React.FC<DivisionsDirectoryPageProps> = ({
   const divisionsOrdered = ['6', '5', '8', '7', '3', '4', '1', '2'];
 
   const q = filterText.trim().toLowerCase();
+  const districtById = useMemo(
+    () => new Map(districts.map((d) => [d.id, d])),
+    [districts]
+  );
 
   return (
     <section className="space-y-6">
@@ -40,25 +49,27 @@ export const DivisionsDirectoryPage: React.FC<DivisionsDirectoryPageProps> = ({
           </button>
           <h1 className="font-display text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight text-balance">
             {lang === 'bn'
-              ? 'বিভাগ অনুযায়ী বাংলাদেশের ৬৪টি জেলা'
-              : 'All 64 Districts by Division'}
+              ? `বিভাগ অনুযায়ী বাংলাদেশের ৬৪ জেলা ও ${formatNum(upazilas.length, lang)} উপজেলা`
+              : `All 64 Districts & ${upazilas.length} Upazilas by Division`}
           </h1>
           <p className="text-sm text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">
             {lang === 'bn'
-              ? 'বাংলাদেশের ৮টি বিভাগ ও ৬৪টি জেলার পূর্ণ তালিকা। যেকোনো জেলা বা বিভাগে ক্লিক করলে সরাসরি মানচিত্রে তার অবস্থান, পার্শ্ববর্তী জেলা, প্রবাহিত নদী ও বিস্তারিত তথ্য খুলবে।'
-              : 'Explore all 8 divisions and 64 districts of Bangladesh. Click any district or division to open its location, bordering districts, rivers, and full dossier on the map.'}
+              ? 'বাংলাদেশের ৮টি বিভাগ, ৬৪টি জেলা ও সকল উপজেলার তালিকা। যেকোনো জেলা, উপজেলা বা বিভাগে ক্লিক করলে সরাসরি মানচিত্রে তার অবস্থান, পার্শ্ববর্তী সীমানা, প্রবাহিত নদী ও বিস্তারিত তথ্য খুলবে।'
+              : 'Explore all 8 divisions, 64 districts, and all upazilas of Bangladesh. Click any item to open its location, neighbors, rivers, and dossier on the map.'}
           </p>
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          <div className="relative w-full sm:w-68">
+          <div className="relative w-full sm:w-72">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
               value={filterText}
               onChange={(e) => setFilterText(e.target.value)}
               placeholder={
-                lang === 'bn' ? 'বিভাগ বা জেলা খুঁজুন...' : 'Filter division or district...'
+                lang === 'bn'
+                  ? 'বিভাগ, জেলা বা উপজেলা খুঁজুন...'
+                  : 'Filter division, district or upazila...'
               }
               className="w-full pl-10 pr-8 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-sm text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-600/15"
             />
@@ -74,7 +85,9 @@ export const DivisionsDirectoryPage: React.FC<DivisionsDirectoryPageProps> = ({
             )}
           </div>
           <span className="hidden sm:inline font-mono-tabular text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-            {lang === 'bn' ? '৮ বিভাগ · ৬৪ জেলা' : '8 Div · 64 Dist'}
+            {lang === 'bn'
+              ? `৮ বিভাগ · ৬৪ জেলা · ${formatNum(upazilas.length, lang)} উপজেলা`
+              : `8 Div · 64 Dist · ${upazilas.length} Upazilas`}
           </span>
         </div>
       </div>
@@ -85,19 +98,31 @@ export const DivisionsDirectoryPage: React.FC<DivisionsDirectoryPageProps> = ({
           const allDivDistricts = districts
             .filter((d) => d.divisionId === divId)
             .sort((a, b) => a.name.localeCompare(b.name));
+          const allDivUpazilas = upazilas
+            .filter((u) => u.divisionId === divId)
+            .sort((a, b) => a.name.localeCompare(b.name));
 
           const divMatches =
             !q ||
             meta.name.toLowerCase().includes(q) ||
             meta.bnName.includes(q);
 
+          const matchingUpazilas = q
+            ? allDivUpazilas.filter(
+                (u) => u.name.toLowerCase().includes(q) || u.bnName.includes(q)
+              )
+            : allDivUpazilas;
+
           const visibleDistricts = divMatches
             ? allDivDistricts
             : allDivDistricts.filter(
-                (d) => d.name.toLowerCase().includes(q) || d.bnName.includes(q)
+                (d) =>
+                  d.name.toLowerCase().includes(q) ||
+                  d.bnName.includes(q) ||
+                  matchingUpazilas.some((u) => u.districtId === d.id)
               );
 
-          if (visibleDistricts.length === 0) return null;
+          if (visibleDistricts.length === 0 && matchingUpazilas.length === 0) return null;
 
           return (
             <div
@@ -111,11 +136,12 @@ export const DivisionsDirectoryPage: React.FC<DivisionsDirectoryPageProps> = ({
                       {lang === 'bn' ? meta.directionBn : meta.directionEn}
                       <span aria-hidden="true"> · </span>
                       <span className="font-mono-tabular">
-                        {meta.areaKm2.toLocaleString()} {lang === 'bn' ? 'বর্গকিমি' : 'km²'}
+                        {formatNum(meta.areaKm2, lang)} {lang === 'bn' ? 'বর্গকিমি' : 'km²'}
                       </span>
                       <span aria-hidden="true"> · </span>
                       <span className="font-mono-tabular">
-                        {allDivDistricts.length} {lang === 'bn' ? 'জেলা' : 'districts'}
+                        {formatNum(allDivDistricts.length, lang)} {lang === 'bn' ? 'জেলা' : 'dist'} ·{' '}
+                        {formatNum(allDivUpazilas.length, lang)} {lang === 'bn' ? 'উপজেলা' : 'upazilas'}
                       </span>
                     </div>
                     <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white mt-0.5">
@@ -138,24 +164,58 @@ export const DivisionsDirectoryPage: React.FC<DivisionsDirectoryPageProps> = ({
                 </p>
               </div>
 
-              <div className="flex flex-wrap gap-1.5 pt-3 border-t border-slate-100 dark:border-slate-800">
-                {visibleDistricts.map((d) => {
-                  const isActive = selectedDistrictId === d.id;
-                  return (
-                    <button
-                      key={d.id}
-                      type="button"
-                      onClick={() => onSelectDistrictOnMap(d.id)}
-                      className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                        isActive
-                          ? 'bg-emerald-700 dark:bg-emerald-600 text-white'
-                          : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 hover:border-emerald-300 dark:hover:border-emerald-700 hover:text-emerald-900 dark:hover:text-emerald-200'
-                      }`}
-                    >
-                      {lang === 'bn' ? d.bnName : d.name}
-                    </button>
-                  );
-                })}
+              <div className="space-y-3.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <div>
+                  <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-1.5">
+                    {lang === 'bn'
+                      ? `জেলাসমূহ (${formatNum(visibleDistricts.length, lang)}টি)`
+                      : `Districts (${visibleDistricts.length})`}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {visibleDistricts.map((d) => {
+                      const isActive = selectedDistrictId === d.id;
+                      return (
+                        <button
+                          key={d.id}
+                          type="button"
+                          onClick={() => onSelectDistrictOnMap(d.id)}
+                          className={`px-2.5 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                            isActive
+                              ? 'bg-emerald-700 dark:bg-emerald-600 text-white'
+                              : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 hover:border-emerald-300 dark:hover:border-emerald-700 hover:text-emerald-900 dark:hover:text-emerald-200'
+                          }`}
+                        >
+                          {lang === 'bn' ? d.bnName : d.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800/80">
+                  <div className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 mb-2">
+                    {lang === 'bn'
+                      ? `উপজেলা ও থানাসমূহ (${formatNum(matchingUpazilas.length, lang)}টি)`
+                      : `Upazilas & Thanas (${matchingUpazilas.length})`}
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 max-h-52 overflow-y-auto pr-1">
+                    {matchingUpazilas.map((u) => {
+                      const pd = districtById.get(u.districtId);
+                      return (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onClick={() => onSelectUpazilaOnMap(u.id)}
+                          className="px-2 py-1 rounded-md bg-emerald-50/70 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/70 border border-emerald-200/80 dark:border-emerald-800/80 text-[11px] font-medium text-emerald-950 dark:text-emerald-200 transition-colors"
+                        >
+                          {lang === 'bn'
+                            ? `${u.bnName} · ${pd?.bnName || ''}`
+                            : `${u.name} · ${pd?.name || ''}`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           );
@@ -260,7 +320,9 @@ export const RiversDirectoryPage: React.FC<RiversDirectoryPageProps> = ({
             )}
           </div>
           <span className="hidden sm:inline font-mono-tabular text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
-            {lang === 'bn' ? `${filteredRivers.length}টি নদী` : `${filteredRivers.length} Rivers`}
+            {lang === 'bn'
+              ? `${formatNum(filteredRivers.length, lang)}টি নদী`
+              : `${filteredRivers.length} Rivers`}
           </span>
         </div>
       </div>
@@ -312,7 +374,7 @@ export const RiversDirectoryPage: React.FC<RiversDirectoryPageProps> = ({
                       </div>
                     </div>
                     <span className="font-mono-tabular text-xs font-semibold text-sky-700 dark:text-sky-400 shrink-0">
-                      ~{r.lengthKm} {lang === 'bn' ? 'কিমি' : 'km'}
+                      ~{formatNum(r.lengthKm, lang)} {lang === 'bn' ? 'কিমি' : 'km'}
                     </span>
                   </div>
 
@@ -341,7 +403,7 @@ export const RiversDirectoryPage: React.FC<RiversDirectoryPageProps> = ({
                 <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 w-full space-y-2">
                   <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
                     {lang === 'bn'
-                      ? `প্রবাহিত জেলা (${districtNames.length}টি):`
+                      ? `প্রবাহিত জেলা (${formatNum(districtNames.length, lang)}টি):`
                       : `Flowing Districts (${districtNames.length}):`}
                   </div>
                   <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
