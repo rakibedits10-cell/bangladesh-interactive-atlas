@@ -9,9 +9,9 @@ import {
 } from './data/bdDistrictDetails';
 import { BangladeshMapCanvas } from './components/BangladeshMapCanvas';
 import { DistrictDetailPanel } from './components/DistrictDetailPanel';
-import {
-  DivisionsDirectoryPage,
-} from './components/RegionalDirectorySection';
+import { OfflineIndicator } from './components/OfflineIndicator';
+import { PWAInstallButton } from './components/PWAInstallButton';
+import { ConquerBangladeshPage } from './components/ConquerBangladeshPage';
 import { QuizPage } from './components/QuizPage';
 import { formatNum } from './utils/format';
 import type {
@@ -26,7 +26,7 @@ import type {
 
 const mapGeoData = rawGeoData as BdMapGeoData;
 const upazilaGeoData = rawUpazilaGeoData as BdUpazilasGeoData;
-type ActivePage = 'map' | 'divisions' | 'quiz';
+type ActivePage = 'map' | 'quiz' | 'conquer';
 type RegionOption = Exclude<DirectionZone, 'all'>;
 
 const REGION_OPTIONS: RegionOption[] = ['north', 'south', 'east', 'west', 'central'];
@@ -296,8 +296,12 @@ export default function App() {
 
   const navItems: { id: ActivePage; labelBn: string; labelEn: string }[] = [
     { id: 'map', labelBn: 'মানচিত্র', labelEn: 'Map' },
-    { id: 'divisions', labelBn: 'বিভাগ, জেলা ও উপজেলা', labelEn: 'Divisions & Upazilas' },
     { id: 'quiz', labelBn: 'কুইজ', labelEn: 'Quiz' },
+    {
+      id: 'conquer',
+      labelBn: 'Conquer Bangladesh',
+      labelEn: 'Conquer Bangladesh',
+    },
   ];
 
   const hasRegionDraftChanges =
@@ -644,7 +648,7 @@ export default function App() {
       {/* 3-Zone Top Bar */}
       <header className="sticky top-0 z-30 bg-white/95 dark:bg-slate-950/95 backdrop-blur-xs border-b border-slate-200 dark:border-slate-800 transition-colors">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-8">
-          {/* Zone 1: Brand Title */}
+          {/* Zone 1: Brand Icon + Title */}
           <a
             href="#atlas"
             onClick={(e) => {
@@ -652,9 +656,14 @@ export default function App() {
               handleResetView();
               navigateToPage('map');
             }}
-            className="font-display text-lg font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0"
+            className="inline-flex items-center gap-2.5 font-display text-lg font-bold tracking-tight text-slate-900 dark:text-white whitespace-nowrap shrink-0"
           >
-            {lang === 'bn' ? 'বাংলাদেশ মানচিত্র' : 'Bangladesh Atlas'}
+            <img
+              src="/pwa-192x192.png"
+              alt=""
+              className="w-7 h-7 rounded-md object-contain bg-white border border-slate-200 dark:border-slate-700 shrink-0"
+            />
+            <span>{lang === 'bn' ? 'বাংলাদেশ মানচিত্র' : 'Bangladesh Atlas'}</span>
           </a>
 
           {/* Zone 2: Concise Single-Line Nav Links */}
@@ -681,8 +690,9 @@ export default function App() {
             })}
           </nav>
 
-          {/* Zone 3: 1 Primary Action */}
-          <div className="flex items-center shrink-0">
+          {/* Zone 3: Install + Language Action */}
+          <div className="flex items-center gap-2 shrink-0">
+            <PWAInstallButton lang={lang} />
             <button
               type="button"
               onClick={() => setLang((prev) => (prev === 'bn' ? 'en' : 'bn'))}
@@ -992,51 +1002,7 @@ export default function App() {
           </>
         )}
 
-        {/* PAGE 2: 64 DISTRICTS & ALL UPAZILAS BY DIVISION */}
-        {activePage === 'divisions' && (
-          <>
-            <div className="hidden md:flex justify-end mb-2">
-              <button
-                type="button"
-                onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                {theme === 'dark' ? (
-                  <>
-                    <Sun className="w-3.5 h-3.5 text-amber-400" />
-                    <span>{lang === 'bn' ? 'লাইট মোড' : 'Light'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Moon className="w-3.5 h-3.5 text-slate-600" />
-                    <span>{lang === 'bn' ? 'ডার্ক মোড' : 'Dark'}</span>
-                  </>
-                )}
-              </button>
-            </div>
-            <DivisionsDirectoryPage
-              districts={mapGeoData.districts}
-              upazilas={upazilaGeoData.upazilas}
-              selectedDistrictId={selectedDistrictId}
-              lang={lang}
-              onSelectDistrictOnMap={(id) => {
-                handleSelectDistrict(id);
-                navigateToPage('map');
-              }}
-              onSelectUpazilaOnMap={(id) => {
-                handleSelectUpazila(id);
-                navigateToPage('map');
-              }}
-              onSelectDivisionOnMap={(divId) => {
-                handleSelectDivision(divId);
-                navigateToPage('map');
-              }}
-              onBackToMap={() => navigateToPage('map')}
-            />
-          </>
-        )}
-
-        {/* PAGE 3: BANGLADESH QUIZ & LEADERBOARD */}
+        {/* PAGE 2: BANGLADESH QUIZ & LEADERBOARD */}
         {activePage === 'quiz' && (
           <>
             <div className="hidden md:flex justify-end mb-2">
@@ -1068,6 +1034,40 @@ export default function App() {
             />
           </>
         )}
+
+        {/* PAGE 3: CONQUER BANGLADESH THROUGH KNOWLEDGE */}
+        {activePage === 'conquer' && (
+          <>
+            <div className="hidden md:flex justify-end mb-2">
+              <button
+                type="button"
+                onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                {theme === 'dark' ? (
+                  <>
+                    <Sun className="w-3.5 h-3.5 text-amber-400" />
+                    <span>{lang === 'bn' ? 'লাইট মোড' : 'Light'}</span>
+                  </>
+                ) : (
+                  <>
+                    <Moon className="w-3.5 h-3.5 text-slate-600" />
+                    <span>{lang === 'bn' ? 'ডার্ক মোড' : 'Dark'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+            <ConquerBangladeshPage
+              divisions={mapGeoData.divisions}
+              districts={mapGeoData.districts}
+              upazilas={upazilaGeoData.upazilas}
+              rivers={mapGeoData.rivers}
+              lang={lang}
+              theme={theme}
+              onBackToMap={() => navigateToPage('map')}
+            />
+          </>
+        )}
       </main>
 
       {/* Clean Editorial Footer */}
@@ -1085,6 +1085,7 @@ export default function App() {
           </span>
         </div>
       </footer>
+      <OfflineIndicator lang={lang} />
     </div>
   );
 }

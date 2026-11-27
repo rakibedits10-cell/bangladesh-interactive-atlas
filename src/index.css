@@ -3,16 +3,16 @@
 
 @layer base {
   html {
-    font-family: "Hind Siliguri", "Plus Jakarta Sans", system-ui, sans-serif;
+    font-family: "Noto Sans Bengali", "Plus Jakarta Sans", system-ui, sans-serif;
     scroll-behavior: smooth;
   }
 
   .font-display {
-    font-family: "Plus Jakarta Sans", "Hind Siliguri", system-ui, sans-serif;
+    font-family: "Plus Jakarta Sans", "Noto Sans Bengali", system-ui, sans-serif;
   }
 
   .font-mono-tabular {
-    font-family: "IBM Plex Mono", monospace;
+    font-family: "IBM Plex Mono", "Noto Sans Bengali", monospace;
     font-variant-numeric: tabular-nums;
   }
 }

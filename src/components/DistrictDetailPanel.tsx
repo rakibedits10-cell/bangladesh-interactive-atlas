@@ -1127,6 +1127,23 @@ export const DistrictDetailPanel: React.FC<DistrictDetailPanelProps> = ({
             </div>
           </div>
 
+          {/* Interesting Facts */}
+          {(lang === 'bn' ? upazilaDetail.interestingFactsBn : upazilaDetail.interestingFactsEn).length > 0 && (
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2.5">
+                {lang === 'bn' ? 'মজার ও গুরুত্বপূর্ণ তথ্য' : 'Interesting Facts'}
+              </h3>
+              <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
+                {(lang === 'bn' ? upazilaDetail.interestingFactsBn : upazilaDetail.interestingFactsEn).map((fact) => (
+                  <li key={fact} className="flex items-start gap-2 leading-relaxed">
+                    <Info className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 mt-1 shrink-0" />
+                    <span>{fact}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Bordering / Adjacent Upazilas — Clean Minimalist 2-Column List */}
           <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2.5">
@@ -1238,23 +1255,6 @@ export const DistrictDetailPanel: React.FC<DistrictDetailPanelProps> = ({
               ))}
             </ul>
           </div>
-
-          {/* Interesting Facts */}
-          {(lang === 'bn' ? upazilaDetail.interestingFactsBn : upazilaDetail.interestingFactsEn).length > 0 && (
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
-              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2.5">
-                {lang === 'bn' ? 'মজার ও গুরুত্বপূর্ণ তথ্য' : 'Interesting Facts'}
-              </h3>
-              <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
-                {(lang === 'bn' ? upazilaDetail.interestingFactsBn : upazilaDetail.interestingFactsEn).map((fact) => (
-                  <li key={fact} className="flex items-start gap-2 leading-relaxed">
-                    <Info className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 mt-1 shrink-0" />
-                    <span>{fact}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </aside>
       );
     }
@@ -1591,6 +1591,23 @@ export const DistrictDetailPanel: React.FC<DistrictDetailPanelProps> = ({
           </div>
         </div>
 
+        {/* Interesting Facts */}
+        {(lang === 'bn' ? detail.interestingFactsBn : detail.interestingFactsEn).length > 0 && (
+          <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2.5">
+              {lang === 'bn' ? 'মজার ও গুরুত্বপূর্ণ তথ্য' : 'Interesting Facts'}
+            </h3>
+            <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
+              {(lang === 'bn' ? detail.interestingFactsBn : detail.interestingFactsEn).map((fact) => (
+                <li key={fact} className="flex items-start gap-2 leading-relaxed">
+                  <Info className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 mt-1 shrink-0" />
+                  <span>{fact}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {/* Upazilas / Thanas inside Selected District — Clean Minimalist Grid */}
         <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2.5">
@@ -1771,23 +1788,6 @@ export const DistrictDetailPanel: React.FC<DistrictDetailPanelProps> = ({
             ))}
           </ul>
         </div>
-
-        {/* Interesting Facts */}
-        {(lang === 'bn' ? detail.interestingFactsBn : detail.interestingFactsEn).length > 0 && (
-          <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
-            <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2.5">
-              {lang === 'bn' ? 'মজার ও গুরুত্বপূর্ণ তথ্য' : 'Interesting Facts'}
-            </h3>
-            <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
-              {(lang === 'bn' ? detail.interestingFactsBn : detail.interestingFactsEn).map((fact) => (
-                <li key={fact} className="flex items-start gap-2 leading-relaxed">
-                  <Info className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 mt-1 shrink-0" />
-                  <span>{fact}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
       </aside>
     );
   }
@@ -2120,6 +2120,23 @@ export const DistrictDetailPanel: React.FC<DistrictDetailPanelProps> = ({
             </div>
           </div>
 
+          {/* Interesting Facts */}
+          {(lang === 'bn' ? divMeta.interestingFactsBn : divMeta.interestingFactsEn).length > 0 && (
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
+              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2.5">
+                {lang === 'bn' ? 'মজার ও গুরুত্বপূর্ণ তথ্য' : 'Interesting Facts'}
+              </h3>
+              <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
+                {(lang === 'bn' ? divMeta.interestingFactsBn : divMeta.interestingFactsEn).map((fact) => (
+                  <li key={fact} className="flex items-start gap-2 leading-relaxed">
+                    <Info className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 mt-1 shrink-0" />
+                    <span>{fact}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Districts inside Selected Division */}
           <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
             <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2.5">
@@ -2382,23 +2399,6 @@ export const DistrictDetailPanel: React.FC<DistrictDetailPanelProps> = ({
               ))}
             </ul>
           </div>
-
-          {/* Interesting Facts */}
-          {(lang === 'bn' ? divMeta.interestingFactsBn : divMeta.interestingFactsEn).length > 0 && (
-            <div className="pt-4 border-t border-slate-200 dark:border-slate-800">
-              <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-2.5">
-                {lang === 'bn' ? 'মজার ও গুরুত্বপূর্ণ তথ্য' : 'Interesting Facts'}
-              </h3>
-              <ul className="space-y-2 text-sm text-slate-700 dark:text-slate-300">
-                {(lang === 'bn' ? divMeta.interestingFactsBn : divMeta.interestingFactsEn).map((fact) => (
-                  <li key={fact} className="flex items-start gap-2 leading-relaxed">
-                    <Info className="w-3.5 h-3.5 text-sky-600 dark:text-sky-400 mt-1 shrink-0" />
-                    <span>{fact}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
         </aside>
       );
     }

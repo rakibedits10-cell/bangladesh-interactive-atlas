@@ -30,6 +30,12 @@ interface BangladeshMapCanvasProps {
   inspectedRiverId?: string | null;
   filterControls?: React.ReactNode;
   activeFilterTags?: React.ReactNode;
+  conquestMode?: boolean;
+  conqueredDivisionIds?: Set<string>;
+  conqueredDistrictIds?: Set<string>;
+  conqueredUpazilaIds?: Set<string>;
+  requestedZoomPreset?: { layer: 'divisions' | 'districts' | 'upazilas'; nonce: number } | null;
+  focusBBoxRequest?: { bbox: [number, number, number, number]; minZoom: number; nonce: number } | null;
   lang: Lang;
   theme: Theme;
   onSelectDivision: (id: string) => void;
@@ -57,6 +63,123 @@ type BBox2D = [number, number, number, number];
 const boxesOverlap = (a: BBox2D, b: BBox2D): boolean =>
   a[0] < b[2] && a[2] > b[0] && a[1] < b[3] && a[3] > b[1];
 
+// Stitch exterior edges from child Upazila polygons (cancelling shared internal edges)
+// so District/Division borders align 100% identically with Upazila borders at deep zoom.
+function stitchBoundaryPaths(paths: string[]): string {
+  const edgeCounts = new Map<string, number>();
+  const edgeCoords = new Map<string, [string, string]>();
+
+  for (const rawPath of paths) {
+    const subpaths = rawPath.split('M');
+    for (const rawSub of subpaths) {
+      const cleaned = rawSub.replace(/[Zz]/g, '').trim();
+      if (!cleaned) continue;
+      const pts = cleaned
+        .split('L')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (pts.length < 2) continue;
+
+      const ringCount = pts[0] === pts[pts.length - 1] ? pts.length - 1 : pts.length;
+      for (let i = 0; i < ringCount; i++) {
+        const a = pts[i];
+        const b = pts[(i + 1) % pts.length];
+        if (!a || !b || a === b) continue;
+        const key = a < b ? `${a}|${b}` : `${b}|${a}`;
+        edgeCounts.set(key, (edgeCounts.get(key) || 0) + 1);
+        if (!edgeCoords.has(key)) {
+          edgeCoords.set(key, [a, b]);
+        }
+      }
+    }
+  }
+
+  const boundaryEdges: [string, string][] = [];
+  for (const [key, count] of edgeCounts.entries()) {
+    if (count === 1) {
+      const pair = edgeCoords.get(key);
+      if (pair) boundaryEdges.push(pair);
+    }
+  }
+  if (boundaryEdges.length === 0) return '';
+
+  const adj = new Map<string, number[]>();
+  for (let i = 0; i < boundaryEdges.length; i++) {
+    const [a, b] = boundaryEdges[i];
+    const listA = adj.get(a);
+    if (listA) listA.push(i);
+    else adj.set(a, [i]);
+    const listB = adj.get(b);
+    if (listB) listB.push(i);
+    else adj.set(b, [i]);
+  }
+
+  const used = new Uint8Array(boundaryEdges.length);
+  const svgParts: string[] = [];
+
+  for (let i = 0; i < boundaryEdges.length; i++) {
+    if (used[i]) continue;
+    used[i] = 1;
+    const [a, b] = boundaryEdges[i];
+    const chain: string[] = [a, b];
+
+    // Extend forward from chain end
+    let curr = b;
+    while (true) {
+      const neighbors = adj.get(curr);
+      if (!neighbors) break;
+      let nextIdx = -1;
+      for (const idx of neighbors) {
+        if (!used[idx]) {
+          nextIdx = idx;
+          break;
+        }
+      }
+      if (nextIdx === -1) break;
+      used[nextIdx] = 1;
+      const [ea, eb] = boundaryEdges[nextIdx];
+      curr = ea === curr ? eb : ea;
+      chain.push(curr);
+      if (curr === chain[0]) break;
+    }
+
+    // Extend backward from chain start if open
+    if (chain[0] !== chain[chain.length - 1]) {
+      const prefix: string[] = [];
+      let head = chain[0];
+      while (true) {
+        const neighbors = adj.get(head);
+        if (!neighbors) break;
+        let prevIdx = -1;
+        for (const idx of neighbors) {
+          if (!used[idx]) {
+            prevIdx = idx;
+            break;
+          }
+        }
+        if (prevIdx === -1) break;
+        used[prevIdx] = 1;
+        const [ea, eb] = boundaryEdges[prevIdx];
+        head = ea === head ? eb : ea;
+        prefix.push(head);
+        if (head === chain[chain.length - 1]) break;
+      }
+      if (prefix.length > 0) {
+        prefix.reverse();
+        chain.unshift(...prefix);
+      }
+    }
+
+    if (chain.length >= 2) {
+      const isClosed = chain[0] === chain[chain.length - 1];
+      const ptsSlice = isClosed ? chain.slice(0, -1) : chain;
+      svgParts.push(`M${ptsSlice.join('L')}${isClosed ? 'Z' : ''}`);
+    }
+  }
+
+  return svgParts.join(' ');
+}
+
 export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
   districts,
   upazilas,
@@ -70,6 +193,12 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
   inspectedRiverId = null,
   filterControls,
   activeFilterTags,
+  conquestMode = false,
+  conqueredDivisionIds,
+  conqueredDistrictIds,
+  conqueredUpazilaIds,
+  requestedZoomPreset = null,
+  focusBBoxRequest = null,
   lang,
   theme,
   onSelectDivision,
@@ -230,6 +359,51 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
   }, []);
 
   useEffect(() => {
+    if (!requestedZoomPreset) return;
+    const { layer } = requestedZoomPreset;
+    if (layer === 'divisions') {
+      animateCameraTo({ zoom: 1, vx: 0, vy: 0 });
+      return;
+    }
+    const targetZoom = layer === 'districts' ? 1.65 : 3.1;
+    const el = containerRef.current;
+    if (!el) {
+      const vw = BASE_W / targetZoom;
+      const vh = BASE_H / targetZoom;
+      animateCameraTo(clampCamera(targetZoom, (BASE_W - vw) / 2, (BASE_H - vh) / 2));
+      return;
+    }
+    const rect = el.getBoundingClientRect();
+    const cur = cameraRef.current;
+    animateCameraTo(
+      computeZoomAtPoint(
+        targetZoom,
+        rect.left + rect.width / 2,
+        rect.top + rect.height / 2,
+        cur
+      )
+    );
+  }, [requestedZoomPreset, animateCameraTo, clampCamera, computeZoomAtPoint]);
+
+  useEffect(() => {
+    if (!focusBBoxRequest) return;
+    const { bbox, minZoom } = focusBBoxRequest;
+    const bw = Math.max(12, bbox[2] - bbox[0]);
+    const bh = Math.max(12, bbox[3] - bbox[1]);
+    const fitZoom = Math.min((BASE_W * 0.45) / bw, (BASE_H * 0.45) / bh);
+    const targetZoom = Math.max(minZoom, Math.min(8, Number(fitZoom.toFixed(2))));
+    if (targetZoom <= 1.05) {
+      animateCameraTo({ zoom: 1, vx: 0, vy: 0 });
+      return;
+    }
+    const cx = (bbox[0] + bbox[2]) / 2;
+    const cy = (bbox[1] + bbox[3]) / 2;
+    const vw = BASE_W / targetZoom;
+    const vh = BASE_H / targetZoom;
+    animateCameraTo(clampCamera(targetZoom, cx - vw / 2, cy - vh / 2));
+  }, [focusBBoxRequest, animateCameraTo, clampCamera]);
+
+  useEffect(() => {
     const handleFsChange = () => {
       setIsNativeFullscreen(Boolean(document.fullscreenElement));
     };
@@ -331,6 +505,38 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
     [districts]
   );
 
+  // Exact District & Division outer borders derived directly from child Upazila polygons
+  // so zoomed Upazila view never shows misaligned double ghost lines.
+  const exactDistrictBorderPaths = useMemo(() => {
+    const byDist = new Map<string, string[]>();
+    for (const u of upazilas) {
+      const list = byDist.get(u.districtId);
+      if (list) list.push(u.path);
+      else byDist.set(u.districtId, [u.path]);
+    }
+    const out = new Map<string, string>();
+    for (const [distId, paths] of byDist.entries()) {
+      const stitched = stitchBoundaryPaths(paths);
+      if (stitched) out.set(distId, stitched);
+    }
+    return out;
+  }, [upazilas]);
+
+  const exactDivisionBorderPaths = useMemo(() => {
+    const byDiv = new Map<string, string[]>();
+    for (const u of upazilas) {
+      const list = byDiv.get(u.divisionId);
+      if (list) list.push(u.path);
+      else byDiv.set(u.divisionId, [u.path]);
+    }
+    const out = new Map<string, string>();
+    for (const [divId, paths] of byDiv.entries()) {
+      const stitched = stitchBoundaryPaths(paths);
+      if (stitched) out.set(divId, stitched);
+    }
+    return out;
+  }, [upazilas]);
+
   const selectedDistrict = useMemo(
     () => (selectedDistrictId ? districtMap.get(selectedDistrictId) || null : null),
     [districtMap, selectedDistrictId]
@@ -352,6 +558,11 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
   // Progressive Semantic Zoom Level of Detail: Divisions -> Districts -> Upazilas
   const zoom = camera.zoom;
   const effectiveLayer: 'divisions' | 'districts' | 'upazilas' = useMemo(() => {
+    if (conquestMode) {
+      if (zoom >= UPAZILA_ZOOM_THRESHOLD) return 'upazilas';
+      if (zoom >= DISTRICT_ZOOM_THRESHOLD) return 'districts';
+      return 'divisions';
+    }
     if (selectedUpazilaId !== null || zoom >= UPAZILA_ZOOM_THRESHOLD) {
       return 'upazilas';
     }
@@ -359,7 +570,7 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
       return 'districts';
     }
     return 'divisions';
-  }, [selectedUpazilaId, selectedDistrictId, hasNonDivisionFilter, zoom]);
+  }, [conquestMode, selectedUpazilaId, selectedDistrictId, hasNonDivisionFilter, zoom]);
 
   const divisionNeighborSet = useMemo(() => {
     if (!selectedDivisionId) return new Set<string>();
@@ -543,7 +754,8 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
     lang,
   ]);
 
-  // Cartographic collision-free + polygon-fit labels for Upazilas Tier (prevents Dhaka metro clutter)
+  // Cartographic collision-free + polygon-fit labels for Upazilas Tier:
+  // Upazila labels reserve boxes FIRST so District names never hide or overlap any Upazila name.
   const visibleUpazilaLayerLabels = useMemo(() => {
     if (effectiveLayer !== 'upazilas') {
       return {
@@ -551,7 +763,6 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
           d: GeoDistrict;
           isParentOfSelected: boolean;
           fontSize: number;
-          opacity: number;
           text: string;
           x: number;
           y: number;
@@ -579,10 +790,10 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
 
     const makeUpazilaEntry = (u: GeoUpazila, isSel: boolean, isNbr: boolean, isHov: boolean) => {
       const text = lang === 'bn' ? u.bnName : u.name;
-      const baseFs = isSel ? 9.6 : isHov ? 8.6 : isNbr ? 7.8 : 6.4;
-      const fontSize = baseFs / Math.pow(labelZoom, 0.72);
-      const w = text.length * fontSize * 0.58 + fontSize * 0.85;
-      const h = fontSize * 1.48;
+      const baseFs = isSel ? 10.4 : isHov ? 9.2 : isNbr ? 8.5 : 7.85;
+      const fontSize = baseFs / Math.pow(labelZoom, 0.56);
+      const w = text.length * fontSize * 0.56 + fontSize * 0.9;
+      const h = fontSize * 1.5;
       const box: BBox2D = [u.cx - w / 2, u.cy - h / 2, u.cx + w / 2, u.cy + h / 2];
       return { u, isSelected: isSel, isNeighbor: isNbr, isHovered: isHov, fontSize, text, box };
     };
@@ -593,7 +804,7 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
         const entry = makeUpazilaEntry(
           u,
           u.id === selectedUpazilaId,
-          upazilaNeighborSet.has(u.id),
+          !conquestMode && upazilaNeighborSet.has(u.id),
           u.id === hoveredUpazilaId
         );
         occupied.push(entry.box);
@@ -601,62 +812,8 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
       }
     }
 
-    // Pass 2: District context labels (crisp, bold, always visible at all upazila zoom levels)
-    const districtLabels: {
-      d: GeoDistrict;
-      isParentOfSelected: boolean;
-      fontSize: number;
-      opacity: number;
-      text: string;
-      x: number;
-      y: number;
-    }[] = [];
-
-    const distCandidates = districts
-      .map((d) => {
-        const matchesFilter = doesDistrictMatchFilter(d);
-        if (hasFilterActive && !selectedUpazilaId && !matchesFilter) return null;
-        const isParentOfSelected =
-          selectedUpazila?.districtId === d.id || selectedDistrictId === d.id;
-
-        const fontSize = (isParentOfSelected ? 13.0 : 11.2) / Math.pow(labelZoom, 0.55);
-        const text = lang === 'bn' ? `${d.bnName} জেলা` : d.name;
-        const w = text.length * fontSize * 0.58 + fontSize * 0.9;
-        const h = fontSize * 1.45;
-        const opacity = selectedUpazilaId
-          ? isParentOfSelected
-            ? 0.98
-            : 0.78
-          : 0.94;
-        const area = (d.bbox[2] - d.bbox[0]) * (d.bbox[3] - d.bbox[1]);
-        return { d, isParentOfSelected, fontSize, opacity, text, w, h, area };
-      })
-      .filter((x): x is NonNullable<typeof x> => Boolean(x))
-      .sort((a, b) => Number(b.isParentOfSelected) - Number(a.isParentOfSelected) || b.area - a.area);
-
-    for (const dc of distCandidates) {
-      const candidateOffsets = dc.isParentOfSelected ? [0, -dc.h * 1.35, dc.h * 1.35] : [0];
-      for (const dy of candidateOffsets) {
-        const cy = dc.d.cy + dy;
-        const box: BBox2D = [dc.d.cx - dc.w / 2, cy - dc.h / 2, dc.d.cx + dc.w / 2, cy + dc.h / 2];
-        if (!occupied.some((b) => boxesOverlap(b, box))) {
-          occupied.push(box);
-          districtLabels.push({
-            d: dc.d,
-            isParentOfSelected: dc.isParentOfSelected,
-            fontSize: dc.fontSize,
-            opacity: dc.opacity,
-            text: dc.text,
-            x: dc.d.cx,
-            y: cy,
-          });
-          break;
-        }
-      }
-    }
-
-    // Pass 3: Bordering neighbor upazilas (prioritized by area so dense Dhaka neighbors stay readable)
-    if (selectedUpazilaId) {
+    // Pass 2: Bordering neighbor upazilas (in explore mode)
+    if (selectedUpazilaId && !conquestMode) {
       const neighbors = upazilas
         .filter((u) => u.id !== selectedUpazilaId && u.id !== hoveredUpazilaId && upazilaNeighborSet.has(u.id))
         .sort((a, b) => b.areaKm2 - a.areaKm2);
@@ -669,32 +826,121 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
       }
     }
 
-    // Pass 4: General upazilas — must fit polygon cleanly & never collide
-    if (!selectedUpazilaId && (labelZoom >= UPAZILA_ZOOM_THRESHOLD || (hasFilterActive && labelZoom >= 1.5))) {
+    // Pass 3: General upazilas — shown across the map even when an upazila is selected
+    if (labelZoom >= UPAZILA_ZOOM_THRESHOLD || selectedUpazilaId !== null || (hasFilterActive && labelZoom >= 1.5)) {
       const regular = upazilas
         .filter(
           (u) =>
             u.id !== selectedUpazilaId &&
             u.id !== hoveredUpazilaId &&
+            !(!conquestMode && upazilaNeighborSet.has(u.id)) &&
             (!hasFilterActive || doesUpazilaMatchFilter(u))
         )
         .sort((a, b) => {
-          const aParent = selectedDistrictId === a.districtId ? 1 : 0;
-          const bParent = selectedDistrictId === b.districtId ? 1 : 0;
+          const aParent =
+            selectedDistrictId === a.districtId || selectedUpazila?.districtId === a.districtId ? 1 : 0;
+          const bParent =
+            selectedDistrictId === b.districtId || selectedUpazila?.districtId === b.districtId ? 1 : 0;
           if (aParent !== bParent) return bParent - aParent;
           return b.areaKm2 - a.areaKm2;
         });
+
+      const minMajorRatio = labelZoom >= 4.0 ? 1.08 : 1.38;
+      const minMinorRatio = labelZoom >= 4.0 ? 0.42 : 0.56;
 
       for (const u of regular) {
         const entry = makeUpazilaEntry(u, false, false, false);
         const polyW = u.bbox[2] - u.bbox[0];
         const polyH = u.bbox[3] - u.bbox[1];
-        if (Math.max(polyW, polyH) < entry.fontSize * 1.45 || Math.min(polyW, polyH) < entry.fontSize * 0.5) {
+        if (
+          Math.max(polyW, polyH) < entry.fontSize * minMajorRatio ||
+          Math.min(polyW, polyH) < entry.fontSize * minMinorRatio
+        ) {
           continue;
         }
         if (!occupied.some((b) => boxesOverlap(b, entry.box))) {
           occupied.push(entry.box);
           upazilaLabels.push(entry);
+        }
+      }
+    }
+
+    // Pass 4 (LAST): District context labels placed ONLY in collision-free pockets so they NEVER cover any Upazila name
+    const districtLabels: {
+      d: GeoDistrict;
+      isParentOfSelected: boolean;
+      fontSize: number;
+      text: string;
+      x: number;
+      y: number;
+    }[] = [];
+
+    const distCandidates = districts
+      .map((d) => {
+        const matchesFilter = doesDistrictMatchFilter(d);
+        if (hasFilterActive && !selectedUpazilaId && !matchesFilter) return null;
+        const isParentOfSelected =
+          selectedUpazila?.districtId === d.id || selectedDistrictId === d.id;
+
+        const fontSize = (isParentOfSelected ? 8.8 : 8.1) / Math.pow(labelZoom, 0.54);
+        const text = lang === 'bn' ? `${d.bnName} জেলা` : d.name;
+        const w = text.length * fontSize * 0.56 + fontSize * 0.9;
+        const h = fontSize * 1.45;
+        const area = (d.bbox[2] - d.bbox[0]) * (d.bbox[3] - d.bbox[1]);
+        return { d, isParentOfSelected, fontSize, text, w, h, area };
+      })
+      .filter((x): x is NonNullable<typeof x> => Boolean(x))
+      .sort((a, b) => Number(b.isParentOfSelected) - Number(a.isParentOfSelected) || b.area - a.area);
+
+    for (const dc of distCandidates) {
+      const polyW = dc.d.bbox[2] - dc.d.bbox[0];
+      const polyH = dc.d.bbox[3] - dc.d.bbox[1];
+      if (polyW < dc.w * 0.95 || polyH < dc.h * 1.4) continue;
+
+      const pad = 2.2 / Math.pow(labelZoom, 0.54);
+      const offsets: [number, number][] = [
+        [0, -dc.h * 1.15],
+        [0, dc.h * 1.15],
+        [-dc.w * 0.32, 0],
+        [dc.w * 0.32, 0],
+        [0, -dc.h * 2.1],
+        [0, dc.h * 2.1],
+        [-dc.w * 0.32, -dc.h * 1.15],
+        [dc.w * 0.32, -dc.h * 1.15],
+        [-dc.w * 0.32, dc.h * 1.15],
+        [dc.w * 0.32, dc.h * 1.15],
+        [0, 0],
+      ];
+
+      for (const [dx, dy] of offsets) {
+        const cx = dc.d.cx + dx;
+        const cy = dc.d.cy + dy;
+        // Keep district label cleanly inside its own district boundary
+        if (
+          cx - dc.w / 2 < dc.d.bbox[0] + 1.5 ||
+          cx + dc.w / 2 > dc.d.bbox[2] - 1.5 ||
+          cy - dc.h / 2 < dc.d.bbox[1] + 1.5 ||
+          cy + dc.h / 2 > dc.d.bbox[3] - 1.5
+        ) {
+          continue;
+        }
+        const checkBox: BBox2D = [
+          cx - dc.w / 2 - pad,
+          cy - dc.h / 2 - pad,
+          cx + dc.w / 2 + pad,
+          cy + dc.h / 2 + pad,
+        ];
+        if (!occupied.some((b) => boxesOverlap(b, checkBox))) {
+          occupied.push(checkBox);
+          districtLabels.push({
+            d: dc.d,
+            isParentOfSelected: dc.isParentOfSelected,
+            fontSize: dc.fontSize,
+            text: dc.text,
+            x: cx,
+            y: cy,
+          });
+          break;
         }
       }
     }
@@ -709,6 +955,7 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
     selectedDistrictId,
     selectedUpazila,
     upazilaNeighborSet,
+    conquestMode,
     hasFilterActive,
     doesDistrictMatchFilter,
     doesUpazilaMatchFilter,
@@ -1170,11 +1417,11 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
           zoom > 1.01 ? (isDragging ? 'cursor-grabbing' : 'cursor-grab') : ''
         }`}
       >
-        {/* Subtle Cartographic Graticule Backdrop */}
+        {/* Subtle Cartographic Graticule Backdrop (hidden on deep upazila zoom for clean look) */}
         <div
-          className="absolute inset-0 pointer-events-none"
+          className="absolute inset-0 pointer-events-none transition-opacity duration-200"
           style={{
-            opacity: isDark ? 0.25 : 0.45,
+            opacity: effectiveLayer === 'upazilas' ? 0 : isDark ? 0.16 : 0.28,
             backgroundImage: isDark
               ? 'linear-gradient(to right, rgba(71,85,105,0.28) 1px, transparent 1px), linear-gradient(to bottom, rgba(71,85,105,0.28) 1px, transparent 1px)'
               : 'linear-gradient(to right, rgba(148,163,184,0.18) 1px, transparent 1px), linear-gradient(to bottom, rgba(148,163,184,0.18) 1px, transparent 1px)',
@@ -1319,14 +1566,15 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
             </text>
           </g>
 
-          {/* TIER 1: 8 Divisions (Initial Overview Layer, zoom < 1.35) */}
+          {/* TIER 1: 8 Divisions (Overview Layer, zoom < 1.35) */}
           {effectiveLayer === 'divisions' && (
             <>
               <g>
                 {divisions.map((div) => {
                   const divMeta = DIVISION_META[div.id];
                   const isSelected = div.id === selectedDivisionId;
-                  const isNeighbor = divisionNeighborSet.has(div.id);
+                  const isConquered = conquestMode && Boolean(conqueredDivisionIds?.has(div.id));
+                  const isNeighbor = !conquestMode && divisionNeighborSet.has(div.id);
                   const isHovered = div.id === hoveredDivisionId;
 
                   let fill = isDark ? divMeta?.darkFill || '#1E293B' : divMeta?.fill || '#EDF2F7';
@@ -1334,7 +1582,31 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                   let strokeWidth = 1.25;
                   let opacity = 1;
 
-                  if (selectedDivisionId) {
+                  if (conquestMode) {
+                    fill = isDark ? '#182234' : '#F1F5F9';
+                    stroke = isDark ? '#475569' : '#94A3B8';
+                    strokeWidth = 1.15;
+
+                    if (isSelected) {
+                      fill = isConquered
+                        ? isDark
+                          ? '#059669'
+                          : '#047857'
+                        : isDark
+                        ? '#1D4ED8'
+                        : '#2563EB';
+                      stroke = isConquered ? '#FBBF24' : isDark ? '#93C5FD' : '#1E3A8A';
+                      strokeWidth = 2.6;
+                    } else if (isConquered) {
+                      fill = isDark ? '#059669' : '#10B981';
+                      stroke = isDark ? '#6EE7B7' : '#065F46';
+                      strokeWidth = 1.8;
+                    } else if (isHovered) {
+                      fill = isDark ? '#273549' : '#E2E8F0';
+                      stroke = isDark ? '#F8FAFC' : '#0F172A';
+                      strokeWidth = 1.7;
+                    }
+                  } else if (selectedDivisionId) {
                     if (isSelected) {
                       fill = isDark ? '#059669' : '#047857';
                       stroke = isDark ? '#6EE7B7' : '#064E3B';
@@ -1357,7 +1629,7 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                     strokeWidth = 1.8;
                   }
 
-                  if (isHovered && !isSelected && selectedDivisionId) {
+                  if (isHovered && !isSelected && (selectedDivisionId || conquestMode)) {
                     stroke = isDark ? '#F8FAFC' : '#0F172A';
                     strokeWidth = 2.0;
                   }
@@ -1391,8 +1663,49 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                 })}
               </g>
 
+              {/* Show conquered sub-territories subtly on Division map in Conquest Mode */}
+              {conquestMode && (
+                <g className="pointer-events-none">
+                  {districts
+                    .filter(
+                      (d) =>
+                        conqueredDistrictIds?.has(d.id) &&
+                        !conqueredDivisionIds?.has(d.divisionId)
+                    )
+                    .map((d) => (
+                      <path
+                        key={`cq-sub-dist-${d.id}`}
+                        d={d.path}
+                        fill={isDark ? '#059669' : '#34D399'}
+                        fillOpacity={0.58}
+                        stroke={isDark ? '#6EE7B7' : '#047857'}
+                        strokeWidth={0.75 / Math.sqrt(zoom)}
+                        strokeLinejoin="round"
+                      />
+                    ))}
+                  {upazilas
+                    .filter(
+                      (u) =>
+                        conqueredUpazilaIds?.has(u.id) &&
+                        !conqueredDistrictIds?.has(u.districtId) &&
+                        !conqueredDivisionIds?.has(u.divisionId)
+                    )
+                    .map((u) => (
+                      <path
+                        key={`cq-sub-upz-${u.id}`}
+                        d={u.path}
+                        fill={isDark ? '#10B981' : '#6EE7B7'}
+                        fillOpacity={0.62}
+                        stroke={isDark ? '#34D399' : '#059669'}
+                        strokeWidth={0.45 / Math.sqrt(zoom)}
+                        strokeLinejoin="round"
+                      />
+                    ))}
+                </g>
+              )}
+
               {/* Subtle District Hairlines inside Selected Division */}
-              {selectedDivisionId && activeRiverIds.length === 0 && (
+              {!conquestMode && selectedDivisionId && activeRiverIds.length === 0 && (
                 <g className="pointer-events-none">
                   {districts
                     .filter((d) => d.divisionId === selectedDivisionId)
@@ -1419,7 +1732,8 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                 {districts.map((d) => {
                   const divMeta = DIVISION_META[d.divisionId];
                   const isSelected = d.id === selectedDistrictId;
-                  const isNeighbor = neighborSet.has(d.id);
+                  const isConquered = conquestMode && Boolean(conqueredDistrictIds?.has(d.id));
+                  const isNeighbor = !conquestMode && neighborSet.has(d.id);
                   const isHovered = d.id === hoveredDistrictId;
                   const matchesFilter = doesDistrictMatchFilter(d);
 
@@ -1428,7 +1742,31 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                   let strokeWidth = 0.85;
                   let opacity = 1;
 
-                  if (selectedDistrictId && activeRiverIds.length === 0) {
+                  if (conquestMode) {
+                    fill = isDark ? '#182234' : '#F1F5F9';
+                    stroke = isDark ? '#475569' : '#64748B';
+                    strokeWidth = 0.9;
+
+                    if (isSelected) {
+                      fill = isConquered
+                        ? isDark
+                          ? '#059669'
+                          : '#047857'
+                        : isDark
+                        ? '#1D4ED8'
+                        : '#2563EB';
+                      stroke = isConquered ? '#FBBF24' : isDark ? '#93C5FD' : '#1E3A8A';
+                      strokeWidth = 2.35;
+                    } else if (isConquered) {
+                      fill = isDark ? '#059669' : '#10B981';
+                      stroke = isDark ? '#6EE7B7' : '#065F46';
+                      strokeWidth = 1.4;
+                    } else if (isHovered) {
+                      fill = isDark ? '#273549' : '#E2E8F0';
+                      stroke = isDark ? '#F8FAFC' : '#0F172A';
+                      strokeWidth = 1.45;
+                    }
+                  } else if (selectedDistrictId && activeRiverIds.length === 0) {
                     if (isSelected) {
                       fill = isDark ? '#059669' : '#047857';
                       stroke = isDark ? '#6EE7B7' : '#064E3B';
@@ -1485,7 +1823,7 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                     strokeWidth = 1.35;
                   }
 
-                  if (isHovered && !isSelected && (selectedDistrictId || hasFilterActive)) {
+                  if (isHovered && !isSelected && (selectedDistrictId || hasFilterActive || conquestMode)) {
                     stroke = isDark ? '#F8FAFC' : '#0F172A';
                     strokeWidth = 1.7;
                   }
@@ -1521,8 +1859,31 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                 })}
               </g>
 
+              {/* Show conquered upazilas subtly inside unconquered districts on District view */}
+              {conquestMode && conqueredUpazilaIds && conqueredUpazilaIds.size > 0 && (
+                <g className="pointer-events-none">
+                  {upazilas
+                    .filter(
+                      (u) =>
+                        conqueredUpazilaIds.has(u.id) &&
+                        !conqueredDistrictIds?.has(u.districtId)
+                    )
+                    .map((u) => (
+                      <path
+                        key={`cq-dist-sub-u-${u.id}`}
+                        d={u.path}
+                        fill={isDark ? '#10B981' : '#6EE7B7'}
+                        fillOpacity={0.62}
+                        stroke={isDark ? '#34D399' : '#059669'}
+                        strokeWidth={0.45 / Math.sqrt(zoom)}
+                        strokeLinejoin="round"
+                      />
+                    ))}
+                </g>
+              )}
+
               {/* Subtle Upazila Subdivision Hairlines inside the Selected District */}
-              {selectedDistrictId && activeRiverIds.length === 0 && (
+              {!conquestMode && selectedDistrictId && activeRiverIds.length === 0 && (
                 <g className="pointer-events-none">
                   {upazilas
                     .filter((u) => u.districtId === selectedDistrictId)
@@ -1549,36 +1910,71 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                 {upazilas.map((u) => {
                   const divMeta = DIVISION_META[u.divisionId];
                   const isSelected = u.id === selectedUpazilaId;
-                  const isNeighbor = upazilaNeighborSet.has(u.id);
+                  const isConquered = conquestMode && Boolean(conqueredUpazilaIds?.has(u.id));
+                  const isNeighbor = !conquestMode && upazilaNeighborSet.has(u.id);
                   const isHovered = u.id === hoveredUpazilaId;
                   const matchesFilter = doesUpazilaMatchFilter(u);
                   const isParentDistSelected =
-                    !selectedUpazilaId && selectedDistrictId === u.districtId;
+                    !conquestMode && !selectedUpazilaId && selectedDistrictId === u.districtId;
 
-                  let fill = isDark ? divMeta?.darkFill || '#1E293B' : divMeta?.fill || '#EDF2F7';
-                  let stroke = isDark ? '#475569' : '#64748B';
-                  let strokeWidth = 0.42;
+                  let fill = conquestMode
+                    ? isDark
+                      ? '#182234'
+                      : '#F1F5F9'
+                    : isDark
+                    ? divMeta?.darkFill || '#1E293B'
+                    : divMeta?.fill || '#EDF2F7';
+                  let stroke = isDark ? '#64748B' : '#64748B';
+                  let strokeWidth = 0.52;
+                  let strokeOpacity = isDark ? 0.62 : 0.52;
                   let opacity = 1;
 
-                  if (selectedUpazilaId) {
+                  if (conquestMode) {
+                    if (isSelected) {
+                      fill = isConquered
+                        ? isDark
+                          ? '#059669'
+                          : '#047857'
+                        : isDark
+                        ? '#1D4ED8'
+                        : '#2563EB';
+                      stroke = isConquered ? '#FBBF24' : isDark ? '#93C5FD' : '#1E3A8A';
+                      strokeWidth = 1.65;
+                      strokeOpacity = 1;
+                    } else if (isConquered) {
+                      fill = isDark ? '#059669' : '#10B981';
+                      stroke = isDark ? '#6EE7B7' : '#065F46';
+                      strokeWidth = 0.9;
+                      strokeOpacity = 0.92;
+                    } else if (isHovered) {
+                      fill = isDark ? '#273549' : '#E2E8F0';
+                      stroke = isDark ? '#F8FAFC' : '#0F172A';
+                      strokeWidth = 1.05;
+                      strokeOpacity = 0.95;
+                    }
+                  } else if (selectedUpazilaId) {
                     if (isSelected) {
                       fill = isDark ? '#059669' : '#047857';
                       stroke = isDark ? '#6EE7B7' : '#064E3B';
                       strokeWidth = 1.65;
+                      strokeOpacity = 1;
                     } else if (isNeighbor) {
                       fill = isDark ? '#78350F' : '#FDE68A';
                       stroke = isDark ? '#F59E0B' : '#B45309';
-                      strokeWidth = 1.15;
+                      strokeWidth = 1.1;
+                      strokeOpacity = 0.95;
                     } else {
                       fill = isDark ? '#141D2E' : '#F1F5F9';
-                      stroke = isDark ? '#334155' : '#CBD5E1';
-                      strokeWidth = 0.35;
-                      opacity = 0.65;
+                      stroke = isDark ? '#64748B' : '#64748B';
+                      strokeWidth = 0.45;
+                      strokeOpacity = 0.5;
+                      opacity = 0.68;
                     }
                   } else if (isParentDistSelected) {
                     fill = isDark ? '#065F46' : '#D1FAE5';
-                    stroke = isDark ? '#34D399' : '#047857';
-                    strokeWidth = 0.75;
+                    stroke = isDark ? '#34D399' : '#059669';
+                    strokeWidth = 0.65;
+                    strokeOpacity = 0.8;
                   } else if (hasFilterActive) {
                     if (matchesFilter) {
                       fill =
@@ -1599,24 +1995,28 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                             : '#0284C7'
                           : isDark
                           ? '#94A3B8'
-                          : '#334155';
-                      strokeWidth = 0.75;
+                          : '#475569';
+                      strokeWidth = 0.62;
+                      strokeOpacity = 0.72;
                     } else {
                       fill = isDark ? '#111827' : '#F1F5F9';
-                      stroke = isDark ? '#1E293B' : '#CBD5E1';
-                      opacity = 0.34;
+                      stroke = isDark ? '#334155' : '#CBD5E1';
+                      strokeOpacity = 0.42;
+                      opacity = 0.36;
                     }
                   } else if (isHovered) {
                     fill = isDark
                       ? divMeta?.darkHoverFill || '#334155'
                       : divMeta?.hoverFill || '#CBD5E1';
                     stroke = isDark ? '#F8FAFC' : '#0F172A';
-                    strokeWidth = 0.95;
+                    strokeWidth = 1.0;
+                    strokeOpacity = 0.92;
                   }
 
                   if (isHovered && !isSelected) {
                     stroke = isDark ? '#F8FAFC' : '#0F172A';
-                    strokeWidth = 1.15;
+                    strokeWidth = 1.1;
+                    strokeOpacity = 0.96;
                   }
 
                   return (
@@ -1626,6 +2026,7 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                       fill={fill}
                       stroke={stroke}
                       strokeWidth={strokeWidth / Math.sqrt(zoom)}
+                      strokeOpacity={strokeOpacity}
                       strokeLinejoin="round"
                       opacity={opacity}
                       className="cursor-pointer transition-[fill,opacity] duration-150 focus:outline-none"
@@ -1641,62 +2042,61 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                 })}
               </g>
 
-              {/* Crisp District & Division Borders Overlay over Upazila Layer */}
+              {/* Natural Aligned District Borders Derived from Upazila Edges */}
               <g className="pointer-events-none">
                 {districts.map((d) => {
                   const isParentOrSelected =
                     selectedUpazila?.districtId === d.id || selectedDistrictId === d.id;
                   const matchesFilter = !hasFilterActive || doesDistrictMatchFilter(d);
+                  const borderPath = exactDistrictBorderPaths.get(d.id) || d.path;
                   return (
                     <path
                       key={`upz-dist-border-${d.id}`}
-                      d={d.path}
+                      d={borderPath}
                       fill="none"
                       stroke={
                         isParentOrSelected
-                          ? isDark
+                          ? conquestMode
+                            ? isDark
+                              ? '#60A5FA'
+                              : '#1D4ED8'
+                            : isDark
                             ? '#34D399'
                             : '#047857'
                           : isDark
                           ? '#CBD5E1'
-                          : '#1E293B'
+                          : '#334155'
                       }
-                      strokeWidth={(isParentOrSelected ? 2.5 : 1.75) / Math.sqrt(zoom)}
+                      strokeWidth={(isParentOrSelected ? 1.15 : 0.88) / Math.sqrt(zoom)}
                       strokeOpacity={
                         isParentOrSelected
-                          ? 0.95
-                          : selectedUpazilaId
-                          ? 0.58
+                          ? 0.92
+                          : selectedUpazilaId && !conquestMode
+                          ? 0.68
                           : matchesFilter
-                          ? 0.85
+                          ? 0.82
                           : 0.3
                       }
+                      strokeLinecap="round"
                       strokeLinejoin="round"
                     />
                   );
                 })}
-                {divisions.map((div) => {
-                  const isSelectedDiv = selectedDivisionId === div.id;
-                  return (
-                    <path
-                      key={`upz-div-border-${div.id}`}
-                      d={div.path}
-                      fill="none"
-                      stroke={
-                        isSelectedDiv
-                          ? isDark
-                            ? '#F8FAFC'
-                            : '#0F172A'
-                          : isDark
-                          ? '#E2E8F0'
-                          : '#0F172A'
-                      }
-                      strokeWidth={(isSelectedDiv ? 3.1 : 2.35) / Math.sqrt(zoom)}
-                      strokeOpacity={selectedUpazilaId ? 0.5 : isSelectedDiv ? 0.9 : 0.72}
-                      strokeLinejoin="round"
-                    />
-                  );
-                })}
+                {selectedDivisionId &&
+                  divisions
+                    .filter((div) => div.id === selectedDivisionId)
+                    .map((div) => (
+                      <path
+                        key={`upz-div-border-${div.id}`}
+                        d={exactDivisionBorderPaths.get(div.id) || div.path}
+                        fill="none"
+                        stroke={isDark ? '#E2E8F0' : '#1E293B'}
+                        strokeWidth={1.15 / Math.sqrt(zoom)}
+                        strokeOpacity={0.82}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      />
+                    ))}
               </g>
             </>
           )}
@@ -1857,38 +2257,46 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
             <g className="pointer-events-none select-none">
               {divisions.map((div) => {
                 const isSelected = div.id === selectedDivisionId;
-                const isNeighbor = divisionNeighborSet.has(div.id);
+                const isConquered = conquestMode && Boolean(conqueredDivisionIds?.has(div.id));
+                const isNeighbor = !conquestMode && divisionNeighborSet.has(div.id);
                 const fontSize = (isSelected ? 15.5 : isNeighbor ? 14 : 13.5) / Math.pow(zoom, 0.45);
-                const fillColor = isSelected
-                  ? '#FFFFFF'
-                  : isNeighbor
-                  ? isDark
-                    ? '#FDE68A'
-                    : '#78350F'
-                  : isDark
-                  ? '#F8FAFC'
-                  : '#0F172A';
-                const strokeColor = isSelected
-                  ? '#064E3B'
-                  : isNeighbor && isDark
-                  ? '#451A03'
-                  : labelHaloColor;
+                const fillColor =
+                  isSelected || isConquered
+                    ? '#FFFFFF'
+                    : isNeighbor
+                    ? isDark
+                      ? '#FDE68A'
+                      : '#78350F'
+                    : isDark
+                    ? '#F8FAFC'
+                    : '#0F172A';
+                const strokeColor =
+                  isSelected && !isConquered
+                    ? conquestMode
+                      ? '#1E3A8A'
+                      : '#064E3B'
+                    : isConquered
+                    ? '#064E3B'
+                    : isNeighbor && isDark
+                    ? '#451A03'
+                    : labelHaloColor;
                 return (
-                  <text
-                    key={`div-lbl-${div.id}`}
-                    x={div.cx}
-                    y={div.cy}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                    fontSize={fontSize}
-                    fontWeight="700"
-                    fill={fillColor}
-                    stroke={strokeColor}
-                    strokeWidth={3.8 / Math.pow(zoom, 0.45)}
-                    style={{ paintOrder: 'stroke' }}
-                  >
-                    {lang === 'bn' ? `${div.bnName} বিভাগ` : div.name}
-                  </text>
+                  <g key={`div-lbl-${div.id}`}>
+                    <text
+                      x={div.cx}
+                      y={div.cy}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize={fontSize}
+                      fontWeight="700"
+                      fill={fillColor}
+                      stroke={strokeColor}
+                      strokeWidth={3.8 / Math.pow(zoom, 0.45)}
+                      style={{ paintOrder: 'stroke' }}
+                    >
+                      {`${isConquered ? '✓ ' : ''}${lang === 'bn' ? `${div.bnName} বিভাগ` : div.name}`}
+                    </text>
+                  </g>
                 );
               })}
             </g>
@@ -1897,20 +2305,27 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
           {effectiveLayer === 'districts' && (
             <g className="pointer-events-none select-none">
               {visibleDistrictLabels.map(({ d, isSelected, isNeighbor, fontSize, text }) => {
-                const fillColor = isSelected
-                  ? '#FFFFFF'
-                  : isNeighbor
-                  ? isDark
-                    ? '#FDE68A'
-                    : '#78350F'
-                  : isDark
-                  ? '#E2E8F0'
-                  : '#1E293B';
-                const strokeColor = isSelected
-                  ? '#064E3B'
-                  : isNeighbor && isDark
-                  ? '#451A03'
-                  : labelHaloColor;
+                const isConquered = conquestMode && Boolean(conqueredDistrictIds?.has(d.id));
+                const fillColor =
+                  isSelected || isConquered
+                    ? '#FFFFFF'
+                    : isNeighbor
+                    ? isDark
+                      ? '#FDE68A'
+                      : '#78350F'
+                    : isDark
+                    ? '#E2E8F0'
+                    : '#1E293B';
+                const strokeColor =
+                  isSelected && !isConquered
+                    ? conquestMode
+                      ? '#1E3A8A'
+                      : '#064E3B'
+                    : isConquered
+                    ? '#064E3B'
+                    : isNeighbor && isDark
+                    ? '#451A03'
+                    : labelHaloColor;
 
                 return (
                   <text
@@ -1920,13 +2335,13 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                     textAnchor="middle"
                     dominantBaseline="central"
                     fontSize={fontSize}
-                    fontWeight={isSelected ? '700' : '600'}
+                    fontWeight={isSelected || isConquered ? '700' : '600'}
                     fill={fillColor}
                     stroke={strokeColor}
-                    strokeWidth={(isSelected ? 3.2 : 2.6) / Math.pow(labelZoom, 0.62)}
+                    strokeWidth={(isSelected || isConquered ? 3.2 : 2.6) / Math.pow(labelZoom, 0.62)}
                     style={{ paintOrder: 'stroke' }}
                   >
-                    {text}
+                    {`${isConquered ? '✓ ' : ''}${text}`}
                   </text>
                 );
               })}
@@ -1935,24 +2350,68 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
 
           {effectiveLayer === 'upazilas' && (
             <>
-              {/* Collision-Culled Upazila Labels (Dense Dhaka Thanas Unlock Progressively on Zoom) */}
+              {/* Muted District Context Labels Placed Strictly in Non-Overlapping Pockets */}
+              <g className="pointer-events-none select-none">
+                {visibleUpazilaLayerLabels.districtLabels.map(
+                  ({ d, isParentOfSelected, fontSize, text, x, y }) => (
+                    <text
+                      key={`u-dist-lbl-${d.id}`}
+                      x={x}
+                      y={y}
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fontSize={fontSize}
+                      fontWeight="500"
+                      fill={
+                        isParentOfSelected
+                          ? conquestMode
+                            ? isDark
+                              ? '#60A5FA'
+                              : '#1D4ED8'
+                            : isDark
+                            ? '#34D399'
+                            : '#047857'
+                          : isDark
+                          ? '#94A3B8'
+                          : '#64748B'
+                      }
+                      fillOpacity={0.92}
+                      stroke={labelHaloColor}
+                      strokeOpacity={0.9}
+                      strokeWidth={(isParentOfSelected ? 2.2 : 1.9) / Math.pow(labelZoom, 0.54)}
+                      style={{ paintOrder: 'stroke' }}
+                    >
+                      {text}
+                    </text>
+                  )
+                )}
+              </g>
+
+              {/* Crisp Upazila Names Matching District Border Contrast */}
               <g className="pointer-events-none select-none">
                 {visibleUpazilaLayerLabels.upazilaLabels.map(
                   ({ u, isSelected, isNeighbor, fontSize, text }) => {
-                    const fillColor = isSelected
-                      ? '#FFFFFF'
-                      : isNeighbor
-                      ? isDark
-                        ? '#FDE68A'
-                        : '#78350F'
-                      : isDark
-                      ? '#E2E8F0'
-                      : '#1E293B';
-                    const strokeColor = isSelected
-                      ? '#064E3B'
-                      : isNeighbor && isDark
-                      ? '#451A03'
-                      : labelHaloColor;
+                    const isConquered = conquestMode && Boolean(conqueredUpazilaIds?.has(u.id));
+                    const fillColor =
+                      isSelected || isConquered
+                        ? '#FFFFFF'
+                        : isNeighbor
+                        ? isDark
+                          ? '#FDE68A'
+                          : '#78350F'
+                        : isDark
+                        ? '#E2E8F0'
+                        : '#1E293B';
+                    const strokeColor =
+                      isSelected && !isConquered
+                        ? conquestMode
+                          ? '#1E3A8A'
+                          : '#064E3B'
+                        : isConquered
+                        ? '#064E3B'
+                        : isNeighbor && isDark
+                        ? '#451A03'
+                        : labelHaloColor;
 
                     return (
                       <text
@@ -1962,49 +2421,16 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                         textAnchor="middle"
                         dominantBaseline="central"
                         fontSize={fontSize}
-                        fontWeight={isSelected ? '700' : isNeighbor ? '600' : '500'}
+                        fontWeight={isSelected || isConquered ? '700' : '600'}
                         fill={fillColor}
                         stroke={strokeColor}
-                        strokeWidth={(isSelected ? 2.4 : 1.9) / Math.pow(labelZoom, 0.72)}
+                        strokeWidth={(isSelected || isConquered ? 2.5 : 1.95) / Math.pow(labelZoom, 0.56)}
                         style={{ paintOrder: 'stroke' }}
                       >
-                        {text}
+                        {`${isConquered ? '✓ ' : ''}${text}`}
                       </text>
                     );
                   }
-                )}
-              </g>
-
-              {/* Prominent Non-Colliding District Context Labels Over Upazila Layer */}
-              <g className="pointer-events-none select-none">
-                {visibleUpazilaLayerLabels.districtLabels.map(
-                  ({ d, isParentOfSelected, fontSize, opacity, text, x, y }) => (
-                    <text
-                      key={`u-dist-lbl-${d.id}`}
-                      x={x}
-                      y={y}
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      fontSize={fontSize}
-                      fontWeight="800"
-                      letterSpacing="0.015em"
-                      fill={
-                        isParentOfSelected
-                          ? isDark
-                            ? '#6EE7B7'
-                            : '#065F46'
-                          : isDark
-                          ? '#F8FAFC'
-                          : '#0F172A'
-                      }
-                      stroke={labelHaloColor}
-                      strokeWidth={(isParentOfSelected ? 3.8 : 3.4) / Math.pow(labelZoom, 0.55)}
-                      opacity={opacity}
-                      style={{ paintOrder: 'stroke' }}
-                    >
-                      {text}
-                    </text>
-                  )
                 )}
               </g>
             </>
@@ -2285,56 +2711,73 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
 
       {/* Explicit Multi-Coded Map Legend Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 border-t border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-xs text-slate-600 dark:text-slate-300 shrink-0">
-        <div className="flex flex-wrap items-center gap-4">
-          <div className="flex items-center gap-1.5">
-            <span className="inline-block w-3.5 h-3.5 rounded-xs bg-[#047857] dark:bg-[#059669] border border-[#064E3B] dark:border-[#6EE7B7]" />
-            <span>
-              {effectiveLayer === 'upazilas'
-                ? lang === 'bn'
-                  ? 'নির্বাচিত উপজেলা'
-                  : 'Selected Upazila'
-                : effectiveLayer === 'districts'
-                ? lang === 'bn'
-                  ? 'নির্বাচিত জেলা'
-                  : 'Selected District'
-                : lang === 'bn'
-                ? 'নির্বাচিত বিভাগ'
-                : 'Selected Division'}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="inline-block w-3.5 h-3.5 rounded-xs bg-[#FDE68A] dark:bg-[#78350F] border border-[#B45309] dark:border-[#F59E0B]" />
-            <span>
-              {effectiveLayer === 'upazilas'
-                ? lang === 'bn'
-                  ? 'পার্শ্ববর্তী উপজেলা'
-                  : 'Bordering Upazilas'
-                : effectiveLayer === 'districts'
-                ? lang === 'bn'
-                  ? 'পার্শ্ববর্তী জেলা'
-                  : 'Bordering Districts'
-                : lang === 'bn'
-                ? 'পার্শ্ববর্তী বিভাগ'
-                : 'Bordering Divisions'}
-            </span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="inline-block w-5 h-1 rounded-full bg-[#0284C7] dark:bg-[#38BDF8]" />
-            <span>{lang === 'bn' ? 'প্রবাহিত নদী (প্রধান ৩০টি)' : 'Major Rivers (of 30)'}</span>
-          </div>
-          {singleFocusedRiver && (
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-1">
-                <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                <span>{lang === 'bn' ? 'উৎপত্তি' : 'Origin'}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <span className="inline-block w-2.5 h-2.5 rotate-45 bg-blue-700 dark:bg-blue-400" />
-                <span>{lang === 'bn' ? 'মোহনা' : 'Mouth'}</span>
-              </div>
+        {conquestMode ? (
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3.5 h-3.5 rounded-xs bg-[#10B981] dark:bg-[#059669] border border-[#065F46] dark:border-[#6EE7B7]" />
+              <span>{lang === 'bn' ? 'জয় করা এলাকা' : 'Conquered'}</span>
             </div>
-          )}
-        </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3.5 h-3.5 rounded-xs bg-[#2563EB] dark:bg-[#1D4ED8] border border-[#1E3A8A] dark:border-[#93C5FD]" />
+              <span>{lang === 'bn' ? 'নির্বাচিত লক্ষ্য' : 'Selected Target'}</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3.5 h-3.5 rounded-xs bg-[#F1F5F9] dark:bg-[#182234] border border-[#94A3B8] dark:border-[#475569]" />
+              <span>{lang === 'bn' ? 'জয় করতে বাকি' : 'Unconquered'}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3.5 h-3.5 rounded-xs bg-[#047857] dark:bg-[#059669] border border-[#064E3B] dark:border-[#6EE7B7]" />
+              <span>
+                {effectiveLayer === 'upazilas'
+                  ? lang === 'bn'
+                    ? 'নির্বাচিত উপজেলা'
+                    : 'Selected Upazila'
+                  : effectiveLayer === 'districts'
+                  ? lang === 'bn'
+                    ? 'নির্বাচিত জেলা'
+                    : 'Selected District'
+                  : lang === 'bn'
+                  ? 'নির্বাচিত বিভাগ'
+                  : 'Selected Division'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-3.5 h-3.5 rounded-xs bg-[#FDE68A] dark:bg-[#78350F] border border-[#B45309] dark:border-[#F59E0B]" />
+              <span>
+                {effectiveLayer === 'upazilas'
+                  ? lang === 'bn'
+                    ? 'পার্শ্ববর্তী উপজেলা'
+                    : 'Bordering Upazilas'
+                  : effectiveLayer === 'districts'
+                  ? lang === 'bn'
+                    ? 'পার্শ্ববর্তী জেলা'
+                    : 'Bordering Districts'
+                  : lang === 'bn'
+                  ? 'পার্শ্ববর্তী বিভাগ'
+                  : 'Bordering Divisions'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-5 h-1 rounded-full bg-[#0284C7] dark:bg-[#38BDF8]" />
+              <span>{lang === 'bn' ? 'প্রবাহিত নদী (প্রধান ৩০টি)' : 'Major Rivers (of 30)'}</span>
+            </div>
+            {singleFocusedRiver && (
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-1">
+                  <span className="inline-block w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                  <span>{lang === 'bn' ? 'উৎপত্তি' : 'Origin'}</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="inline-block w-2.5 h-2.5 rotate-45 bg-blue-700 dark:bg-blue-400" />
+                  <span>{lang === 'bn' ? 'মোহনা' : 'Mouth'}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
         <span className="text-slate-500 dark:text-slate-400">
           {effectiveLayer === 'divisions'
             ? lang === 'bn'

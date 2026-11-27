@@ -14,7 +14,7 @@ import type { GeoDistrict, GeoDivision, GeoRiver, GeoUpazila } from '../types/ma
 
 export type QuizScopeType = 'bangladesh' | 'division' | 'district' | 'upazila';
 export type QuizCategory = 'mixed' | 'geography_borders' | 'rivers' | 'heritage_facts';
-export type QuizLength = 10 | 15 | 20;
+export type QuizLength = 10 | 15 | 20 | 30;
 
 export interface QuizConfig {
   scopeType: QuizScopeType;
@@ -310,7 +310,8 @@ export function generateQuizQuestions(
     priority: 1 | 2,
     thorough: boolean,
     contextPrefixBn?: string,
-    contextPrefixEn?: string
+    contextPrefixEn?: string,
+    includeRiverTrivia = true
   ) => {
     const detail = DISTRICT_DETAILS[dist.id];
     const divMeta = DIVISION_META[dist.divisionId];
@@ -362,40 +363,95 @@ export function generateQuizQuestions(
       .filter((d): d is GeoDistrict => Boolean(d));
     const nonNeighbors = districts.filter((d) => d.id !== dist.id && !neighborSet.has(d.id));
 
-    const neighborSample = thorough ? shuffleArray(neighbors).slice(0, 4) : neighbors.slice(0, 1);
-    for (const nbr of neighborSample) {
+    const neighborSample = thorough ? shuffleArray(neighbors).slice(0, 6) : neighbors.slice(0, 1);
+    neighborSample.forEach((nbr, idx) => {
+      const qPromptsBn = [
+        `${pBn}নিচের কোন জেলাটি ${dist.bnName} জেলার সরাসরি সীমান্তবর্তী?`,
+        `${pBn}মানচিত্রে ${dist.bnName} জেলার সীমান্ত স্পর্শ করেছে কোন জেলাটি?`,
+        `${pBn}${dist.bnName} জেলার পার্শ্ববর্তী সীমান্ত জেলা নিচের কোনটি?`,
+      ];
+      const qPromptsEn = [
+        `${pEn}Which of the following districts directly borders ${dist.name} District?`,
+        `${pEn}On the map, which district shares a boundary with ${dist.name} District?`,
+        `${pEn}Which neighboring district lies adjacent to ${dist.name} District?`,
+      ];
       pushQ(
         buildQuestion(
           nextId('dist-nbr'),
           priority,
           'geography_borders',
-          `${pBn}নিচের কোন জেলাটি ${dist.bnName} জেলার সরাসরি সীমান্তবর্তী?`,
-          `${pEn}Which of the following districts directly borders ${dist.name} District?`,
+          qPromptsBn[idx % qPromptsBn.length],
+          qPromptsEn[idx % qPromptsEn.length],
           { bn: nbr.bnName, en: nbr.name },
           nonNeighbors.map((d) => ({ bn: d.bnName, en: d.name })),
           `${nbr.bnName} জেলা ${dist.bnName} জেলার পার্শ্ববর্তী সীমান্ত জেলা।`,
           `${nbr.name} shares a direct border with ${dist.name} District.`
         )
       );
-    }
+    });
 
-    if (neighbors.length >= 3) {
-      const pickedNonNbr = shuffleArray(nonNeighbors)[0];
-      if (pickedNonNbr) {
+    if (thorough && neighbors.length >= 2) {
+      const northNbr = neighbors.filter((x) => x.cy < dist.cy - 6).sort((a, b) => a.cy - b.cy)[0];
+      if (northNbr) {
         pushQ(
           buildQuestion(
-            nextId('dist-non-nbr'),
+            nextId('dist-dir-nbr-n'),
             priority,
             'geography_borders',
-            `${pBn}নিচের কোন জেলাটির সাথে ${dist.bnName} জেলার সরাসরি স্থলসীমান্ত নেই?`,
-            `${pEn}Which of the following districts does NOT share a border with ${dist.name} District?`,
-            { bn: pickedNonNbr.bnName, en: pickedNonNbr.name },
-            neighbors.map((d) => ({ bn: d.bnName, en: d.name })),
-            `${pickedNonNbr.bnName} জেলার সাথে ${dist.bnName} জেলার সরাসরি সীমান্ত নেই।`,
-            `${pickedNonNbr.name} does not border ${dist.name} District directly.`
+            `${pBn}${dist.bnName} জেলার উত্তর দিকে সীমান্তবর্তী জেলা কোনটি?`,
+            `${pEn}Which district borders ${dist.name} District to its north?`,
+            { bn: `${northNbr.bnName} জেলা`, en: `${northNbr.name} District` },
+            nonNeighbors.map((d) => ({ bn: `${d.bnName} জেলা`, en: `${d.name} District` })),
+            `${northNbr.bnName} জেলা ${dist.bnName} জেলার উত্তর সীমান্তে অবস্থিত।`,
+            `${northNbr.name} District borders ${dist.name} District to the north.`
           )
         );
       }
+      const southNbr = neighbors.filter((x) => x.cy > dist.cy + 6).sort((a, b) => b.cy - a.cy)[0];
+      if (southNbr) {
+        pushQ(
+          buildQuestion(
+            nextId('dist-dir-nbr-s'),
+            priority,
+            'geography_borders',
+            `${pBn}${dist.bnName} জেলার দক্ষিণ দিকে সীমান্তবর্তী জেলা কোনটি?`,
+            `${pEn}Which district borders ${dist.name} District to its south?`,
+            { bn: `${southNbr.bnName} জেলা`, en: `${southNbr.name} District` },
+            nonNeighbors.map((d) => ({ bn: `${d.bnName} জেলা`, en: `${d.name} District` })),
+            `${southNbr.bnName} জেলা ${dist.bnName} জেলার দক্ষিণ সীমান্তে অবস্থিত।`,
+            `${southNbr.name} District borders ${dist.name} District to the south.`
+          )
+        );
+      }
+    }
+
+    if (neighbors.length >= 3) {
+      const nonNbrLimit = thorough ? 3 : 1;
+      shuffleArray(nonNeighbors)
+        .slice(0, nonNbrLimit)
+        .forEach((pickedNonNbr, idx) => {
+          pushQ(
+            buildQuestion(
+              nextId('dist-non-nbr'),
+              priority,
+              'geography_borders',
+              idx === 0
+                ? `${pBn}নিচের কোন জেলাটির সাথে ${dist.bnName} জেলার সরাসরি স্থলসীমান্ত নেই?`
+                : idx === 1
+                ? `${pBn}সীমান্ত বিচারে নিচের কোন জেলাটি ${dist.bnName} জেলার পার্শ্ববর্তী নয়?`
+                : `${pBn}${dist.bnName} জেলার সীমানা স্পর্শ করেনি নিচের কোন জেলাটি?`,
+              idx === 0
+                ? `${pEn}Which of the following districts does NOT share a border with ${dist.name} District?`
+                : idx === 1
+                ? `${pEn}Which district is NOT directly adjacent to ${dist.name} District?`
+                : `${pEn}Which of these districts does not touch the boundary of ${dist.name} District?`,
+              { bn: pickedNonNbr.bnName, en: pickedNonNbr.name },
+              neighbors.map((d) => ({ bn: d.bnName, en: d.name })),
+              `${pickedNonNbr.bnName} জেলার সাথে ${dist.bnName} জেলার সরাসরি সীমান্ত নেই।`,
+              `${pickedNonNbr.name} does not border ${dist.name} District directly.`
+            )
+          );
+        });
     }
 
     // 4. Established year, Area, Upazila count, Neighbor count, External Border
@@ -445,6 +501,51 @@ export function generateQuizQuestions(
         )
       );
 
+      const largerDists = districts.filter(
+        (d) => d.id !== dist.id && DISTRICT_DETAILS[d.id] && DISTRICT_DETAILS[d.id].areaKm2 - detail.areaKm2 >= 220
+      );
+      const smallerDists = districts.filter(
+        (d) => d.id !== dist.id && DISTRICT_DETAILS[d.id] && detail.areaKm2 - DISTRICT_DETAILS[d.id].areaKm2 >= 220
+      );
+      if (largerDists.length >= 1 && smallerDists.length >= 3) {
+        shuffleArray(largerDists)
+          .slice(0, 2)
+          .forEach((ld) => {
+            pushQ(
+              buildQuestion(
+                nextId('dist-larger'),
+                priority,
+                'geography_borders',
+                `${pBn}নিচের কোন জেলাটি আয়তনে ${dist.bnName} জেলার চেয়ে বড়?`,
+                `${pEn}Which of these districts is larger in area than ${dist.name} District?`,
+                { bn: `${ld.bnName} জেলা`, en: `${ld.name} District` },
+                smallerDists.map((sd) => ({ bn: `${sd.bnName} জেলা`, en: `${sd.name} District` })),
+                `${ld.bnName} জেলার আয়তন (~${formatNum(DISTRICT_DETAILS[ld.id].areaKm2, 'bn')} কিমি²) ${dist.bnName} জেলার (~${formatNum(detail.areaKm2, 'bn')} কিমি²) চেয়ে বড়।`,
+                `${ld.name} District (~${DISTRICT_DETAILS[ld.id].areaKm2} km²) is larger than ${dist.name} District (~${detail.areaKm2} km²).`
+              )
+            );
+          });
+      }
+      if (smallerDists.length >= 1 && largerDists.length >= 3) {
+        shuffleArray(smallerDists)
+          .slice(0, 2)
+          .forEach((sd) => {
+            pushQ(
+              buildQuestion(
+                nextId('dist-smaller'),
+                priority,
+                'geography_borders',
+                `${pBn}নিচের কোন জেলাটি আয়তনে ${dist.bnName} জেলার চেয়ে ছোট?`,
+                `${pEn}Which of these districts is smaller in area than ${dist.name} District?`,
+                { bn: `${sd.bnName} জেলা`, en: `${sd.name} District` },
+                largerDists.map((ld) => ({ bn: `${ld.bnName} জেলা`, en: `${ld.name} District` })),
+                `${sd.bnName} জেলার আয়তন (~${formatNum(DISTRICT_DETAILS[sd.id].areaKm2, 'bn')} কিমি²) ${dist.bnName} জেলার (~${formatNum(detail.areaKm2, 'bn')} কিমি²) চেয়ে ছোট।`,
+                `${sd.name} District (~${DISTRICT_DETAILS[sd.id].areaKm2} km²) is smaller than ${dist.name} District (~${detail.areaKm2} km²).`
+              )
+            );
+          });
+      }
+
       if (detail.population > 0) {
         const otherPops = districts
           .filter(
@@ -473,6 +574,69 @@ export function generateQuizQuestions(
             `As of the 2022 census, ${dist.name} District has a population of ~${detail.population.toLocaleString()}.`
           )
         );
+
+        const distDensity = Math.round(detail.population / Math.max(1, detail.areaKm2));
+        const otherDensities = districts
+          .filter((d) => d.id !== dist.id && DISTRICT_DETAILS[d.id]?.population > 0)
+          .map((d) => Math.round(DISTRICT_DETAILS[d.id].population / Math.max(1, DISTRICT_DETAILS[d.id].areaKm2)))
+          .filter((den) => Math.abs(den - distDensity) >= 220)
+          .map((den) => ({
+            bn: `প্রায় ${formatNum(den, 'bn')} জন/কিমি²`,
+            en: `~${den.toLocaleString()} /km²`,
+          }));
+        pushQ(
+          buildQuestion(
+            nextId('dist-density'),
+            priority,
+            'heritage_facts',
+            `${pBn}${dist.bnName} জেলায় প্রতি বর্গকিলোমিটারে আনুমানিক জনঘনত্ব কত?`,
+            `${pEn}What is the approximate population density per km² in ${dist.name} District?`,
+            {
+              bn: `প্রায় ${formatNum(distDensity, 'bn')} জন/কিমি²`,
+              en: `~${distDensity.toLocaleString()} /km²`,
+            },
+            otherDensities,
+            `${dist.bnName} জেলায় জনঘনত্ব প্রতি বর্গকিলোমিটারে প্রায় ${formatNum(distDensity, 'bn')} জন।`,
+            `${dist.name} District has ~${distDensity.toLocaleString()} people per km².`
+          )
+        );
+
+        const morePopDists = districts.filter(
+          (d) => d.id !== dist.id && (DISTRICT_DETAILS[d.id]?.population || 0) - detail.population >= 300000
+        );
+        const lessPopDists = districts.filter(
+          (d) => d.id !== dist.id && DISTRICT_DETAILS[d.id]?.population > 0 && detail.population - DISTRICT_DETAILS[d.id].population >= 300000
+        );
+        if (morePopDists.length >= 1 && lessPopDists.length >= 3) {
+          pushQ(
+            buildQuestion(
+              nextId('dist-pop-more'),
+              priority,
+              'heritage_facts',
+              `${pBn}জনসংখ্যার দিক থেকে নিচের কোন জেলাটি ${dist.bnName} জেলার চেয়ে বড়?`,
+              `${pEn}Which of these districts has a larger population than ${dist.name} District?`,
+              { bn: `${morePopDists[0].bnName} জেলা`, en: `${morePopDists[0].name} District` },
+              lessPopDists.map((sd) => ({ bn: `${sd.bnName} জেলা`, en: `${sd.name} District` })),
+              `${morePopDists[0].bnName} জেলার জনসংখ্যা ${dist.bnName} জেলার চেয়ে বেশি।`,
+              `${morePopDists[0].name} District has a larger population than ${dist.name} District.`
+            )
+          );
+        }
+        if (lessPopDists.length >= 1 && morePopDists.length >= 3) {
+          pushQ(
+            buildQuestion(
+              nextId('dist-pop-less'),
+              priority,
+              'heritage_facts',
+              `${pBn}জনসংখ্যার দিক থেকে নিচের কোন জেলাটি ${dist.bnName} জেলার চেয়ে ছোট?`,
+              `${pEn}Which of these districts has a smaller population than ${dist.name} District?`,
+              { bn: `${lessPopDists[0].bnName} জেলা`, en: `${lessPopDists[0].name} District` },
+              morePopDists.map((ld) => ({ bn: `${ld.bnName} জেলা`, en: `${ld.name} District` })),
+              `${lessPopDists[0].bnName} জেলার জনসংখ্যা ${dist.bnName} জেলার চেয়ে কম।`,
+              `${lessPopDists[0].name} District has a smaller population than ${dist.name} District.`
+            )
+          );
+        }
       }
 
       const distinctCounts = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
@@ -689,7 +853,7 @@ export function generateQuizQuestions(
           `The ${r.name} River flows through ${dist.name} District.`
         )
       );
-      if (thorough) {
+      if (thorough && includeRiverTrivia) {
         addRiverFacts(
           r,
           priority,
@@ -700,26 +864,135 @@ export function generateQuizQuestions(
       }
     }
 
+    if (thorough) {
+      pushQ(
+        buildQuestion(
+          nextId('dist-riv-cnt'),
+          priority,
+          'rivers',
+          `${pBn}তালিকাভুক্ত ৩০টি প্রধান নদ-নদীর কয়টি ${dist.bnName} জেলার মধ্য দিয়ে প্রবাহিত হয়েছে?`,
+          `${pEn}How many of the 30 mapped major rivers flow through ${dist.name} District?`,
+          { bn: `${formatNum(distRivers.length, 'bn')}টি`, en: `${distRivers.length}` },
+          [0, 1, 2, 3, 4, 5, 6, 7]
+            .filter((n) => n !== distRivers.length)
+            .map((n) => ({ bn: `${formatNum(n, 'bn')}টি`, en: `${n}` })),
+          `${dist.bnName} জেলার ওপর দিয়ে তালিকাভুক্ত ${formatNum(distRivers.length, 'bn')}টি প্রধান নদী প্রবাহিত হয়েছে।`,
+          `${distRivers.length} mapped major river(s) flow through ${dist.name} District.`
+        )
+      );
+
+      if (distRivers.length >= 3 && foreignRivers.length >= 1) {
+        shuffleArray(foreignRivers)
+          .slice(0, 2)
+          .forEach((pickedForeignRiv) => {
+            pushQ(
+              buildQuestion(
+                nextId('dist-riv-not'),
+                priority,
+                'rivers',
+                `${pBn}নিচের কোন প্রধান নদীটি ${dist.bnName} জেলার মধ্য দিয়ে সরাসরি প্রবাহিত হয়নি?`,
+                `${pEn}Which of these major rivers does NOT directly pass through ${dist.name} District?`,
+                { bn: `${pickedForeignRiv.bnName} নদী`, en: `${pickedForeignRiv.name} River` },
+                distRivers.map((dr) => ({ bn: `${dr.bnName} নদী`, en: `${dr.name} River` })),
+                `${pickedForeignRiv.bnName} নদী ${dist.bnName} জেলার মধ্য দিয়ে প্রবাহিত হয়নি।`,
+                `The ${pickedForeignRiv.name} River does not pass through ${dist.name} District.`
+              )
+            );
+          });
+      }
+      pushQ(
+        buildQuestion(
+          nextId('dist-u-cnt'),
+          priority,
+          'geography_borders',
+          `${pBn}প্রশাসনিকভাবে ${dist.bnName} জেলায় মোট কয়টি উপজেলা বা থানা রয়েছে?`,
+          `${pEn}How many upazilas or metropolitan thanas are in ${dist.name} District?`,
+          { bn: `${formatNum(distUpazilas.length, 'bn')}টি`, en: `${distUpazilas.length}` },
+          [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+            .filter((n) => n !== distUpazilas.length)
+            .map((n) => ({ bn: `${formatNum(n, 'bn')}টি`, en: `${n}` })),
+          `${dist.bnName} জেলায় মোট ${formatNum(distUpazilas.length, 'bn')}টি উপজেলা/থানা রয়েছে।`,
+          `${dist.name} District consists of ${distUpazilas.length} upazilas/thanas.`
+        )
+      );
+
+      if (detail) {
+        const dAreaBr = [
+          { match: detail.areaKm2 < 1200, bn: '১,২০০ বর্গ কিমি-র কম', en: 'Under 1,200 km²' },
+          { match: detail.areaKm2 >= 1200 && detail.areaKm2 < 2200, bn: '১,২০০ থেকে ২,১৯৯ বর্গ কিমি', en: '1,200 to 2,199 km²' },
+          { match: detail.areaKm2 >= 2200 && detail.areaKm2 < 3500, bn: '২,২০০ থেকে ৩,৪৯৯ বর্গ কিমি', en: '2,200 to 3,499 km²' },
+          { match: detail.areaKm2 >= 3500, bn: '৩,৫০০ বর্গ কিমি বা তার বেশি', en: '3,500 km² or more' },
+        ];
+        const mAreaBr = dAreaBr.find((b) => b.match) || dAreaBr[1];
+        pushQ(
+          buildQuestion(
+            nextId('dist-area-br'),
+            priority,
+            'geography_borders',
+            `${pBn}আয়তনের পরিমাপ অনুযায়ী ${dist.bnName} জেলা কোন শ্রেণির অন্তর্ভুক্ত?`,
+            `${pEn}Which area category describes ${dist.name} District?`,
+            { bn: mAreaBr.bn, en: mAreaBr.en },
+            dAreaBr.filter((b) => b.en !== mAreaBr.en).map((b) => ({ bn: b.bn, en: b.en })),
+            `${dist.bnName} জেলার আয়তন প্রায় ${formatNum(detail.areaKm2, 'bn')} কিমি² (${mAreaBr.bn})।`,
+            `${dist.name} District covers ~${detail.areaKm2} km² (${mAreaBr.en}).`
+          )
+        );
+
+        const dPopBr = [
+          { match: detail.population < 1200000, bn: '১২ লাখের কম', en: 'Under 1.2 million' },
+          { match: detail.population >= 1200000 && detail.population < 2200000, bn: '১২ লাখ থেকে ২২ লাখের কম', en: '1.2M to 2.19M' },
+          { match: detail.population >= 2200000 && detail.population < 3500000, bn: '২২ লাখ থেকে ৩৫ লাখের কম', en: '2.2M to 3.49M' },
+          { match: detail.population >= 3500000, bn: '৩৫ লাখ বা তার বেশি', en: '3.5 million or more' },
+        ];
+        const mPopBr = dPopBr.find((b) => b.match) || dPopBr[1];
+        pushQ(
+          buildQuestion(
+            nextId('dist-pop-br'),
+            priority,
+            'heritage_facts',
+            `${pBn}২০২২ সালের জনশুমারি অনুযায়ী ${dist.bnName} জেলার জনসংখ্যা কোন সীমার মধ্যে?`,
+            `${pEn}Which 2022 census population range fits ${dist.name} District?`,
+            { bn: mPopBr.bn, en: mPopBr.en },
+            dPopBr.filter((b) => b.en !== mPopBr.en).map((b) => ({ bn: b.bn, en: b.en })),
+            `${dist.bnName} জেলার জনসংখ্যা প্রায় ${formatNum(detail.population, 'bn')} জন (${mPopBr.bn})।`,
+            `${dist.name} District population is ~${detail.population.toLocaleString()} (${mPopBr.en}).`
+          )
+        );
+      }
+    }
+
     // 7. Upazilas inside district
     const outsideUpazilas = upazilas.filter((u) => u.districtId !== dist.id);
     const upazilaSample = thorough
-      ? shuffleArray(distUpazilas).slice(0, 6)
+      ? shuffleArray(distUpazilas).slice(0, 8)
       : shuffleArray(distUpazilas).slice(0, 2);
-    for (const u of upazilaSample) {
+    const uInPromptsBn = [
+      `${pBn}নিচের কোন উপজেলা/থানাটি ${dist.bnName} জেলার অন্তর্ভুক্ত?`,
+      `${pBn}প্রশাসনিকভাবে ${dist.bnName} জেলার একটি ইউনিট নিচের কোনটি?`,
+      `${pBn}${dist.bnName} জেলার ভৌগোলিক সীমানার ভেতরে অবস্থিত উপজেলা/থানা কোনটি?`,
+      `${pBn}নিচের কোন প্রশাসনিক এলাকাটি ${dist.bnName} জেলা প্রশাসনের অধীন?`,
+    ];
+    const uInPromptsEn = [
+      `${pEn}Which of the following upazilas or thanas belongs to ${dist.name} District?`,
+      `${pEn}Which unit is administratively part of ${dist.name} District?`,
+      `${pEn}Which upazila or thana lies within ${dist.name} District?`,
+      `${pEn}Which local administrative area falls under ${dist.name} District?`,
+    ];
+    upazilaSample.forEach((u, idx) => {
       pushQ(
         buildQuestion(
           nextId('dist-u-in'),
           priority,
           'geography_borders',
-          `${pBn}নিচের কোন উপজেলা/থানাটি ${dist.bnName} জেলার অন্তর্ভুক্ত?`,
-          `${pEn}Which of the following upazilas or thanas belongs to ${dist.name} District?`,
+          uInPromptsBn[idx % uInPromptsBn.length],
+          uInPromptsEn[idx % uInPromptsEn.length],
           { bn: u.bnName, en: u.name },
           outsideUpazilas.map((ou) => ({ bn: ou.bnName, en: ou.name })),
           `${u.bnName} হলো ${dist.bnName} জেলার একটি উপজেলা/থানা।`,
           `${u.name} is an upazila/thana in ${dist.name} District.`
         )
       );
-    }
+    });
 
     if (thorough && distUpazilas.length >= 3) {
       const sortedByArea = [...distUpazilas].sort((a, b) => b.areaKm2 - a.areaKm2);
@@ -790,22 +1063,27 @@ export function generateQuizQuestions(
         );
       }
 
-      const outsiderU = shuffleArray(outsideUpazilas)[0];
-      if (outsiderU) {
-        pushQ(
-          buildQuestion(
-            nextId('dist-u-not'),
-            priority,
-            'geography_borders',
-            `${pBn}নিচের কোন উপজেলাটি ${dist.bnName} জেলার অন্তর্ভুক্ত নয়?`,
-            `${pEn}Which of the following upazilas is NOT part of ${dist.name} District?`,
-            { bn: outsiderU.bnName, en: outsiderU.name },
-            distUpazilas.map((u) => ({ bn: u.bnName, en: u.name })),
-            `${outsiderU.bnName} ${distMap.get(outsiderU.districtId)?.bnName || ''} জেলার অন্তর্গত, ${dist.bnName} জেলার নয়।`,
-            `${outsiderU.name} belongs to ${distMap.get(outsiderU.districtId)?.name || 'another'} District, not ${dist.name}.`
-          )
-        );
-      }
+      shuffleArray(outsideUpazilas)
+        .slice(0, 2)
+        .forEach((outsiderU, idx) => {
+          pushQ(
+            buildQuestion(
+              nextId('dist-u-not'),
+              priority,
+              'geography_borders',
+              idx === 0
+                ? `${pBn}নিচের কোন উপজেলাটি ${dist.bnName} জেলার অন্তর্ভুক্ত নয়?`
+                : `${pBn}প্রশাসনিকভাবে নিচের কোনটি ${dist.bnName} জেলার বাইরে অবস্থিত?`,
+              idx === 0
+                ? `${pEn}Which of the following upazilas is NOT part of ${dist.name} District?`
+                : `${pEn}Which of these units lies OUTSIDE ${dist.name} District?`,
+              { bn: outsiderU.bnName, en: outsiderU.name },
+              distUpazilas.map((u) => ({ bn: u.bnName, en: u.name })),
+              `${outsiderU.bnName} ${distMap.get(outsiderU.districtId)?.bnName || ''} জেলার অন্তর্গত, ${dist.bnName} জেলার নয়।`,
+              `${outsiderU.name} belongs to ${distMap.get(outsiderU.districtId)?.name || 'another'} District, not ${dist.name}.`
+            )
+          );
+        });
     }
   };
 
@@ -935,25 +1213,164 @@ export function generateQuizQuestions(
         )
       );
 
+      pushQ(
+        buildQuestion(
+          nextId('div-dir'),
+          priority,
+          'geography_borders',
+          `ভৌগোলিকভাবে ${divMeta.bnName} বিভাগ বাংলাদেশের কোন অঞ্চলে অবস্থিত?`,
+          `In which geographical region of Bangladesh is ${divMeta.name} Division located?`,
+          { bn: divMeta.directionBn, en: divMeta.directionEn },
+          divisions
+            .filter((d) => d.id !== div.id && DIVISION_META[d.id]?.directionEn !== divMeta.directionEn)
+            .map((d) => ({
+              bn: DIVISION_META[d.id].directionBn,
+              en: DIVISION_META[d.id].directionEn,
+            })),
+          `${divMeta.bnName} বিভাগ ${divMeta.directionBn} অবস্থিত।`,
+          `${divMeta.name} Division is located in the ${divMeta.directionEn}.`
+        )
+      );
+
+      if (divMeta.population > 0) {
+        const divDensity = Math.round(divMeta.population / Math.max(1, divMeta.areaKm2));
+        pushQ(
+          buildQuestion(
+            nextId('div-density'),
+            priority,
+            'heritage_facts',
+            `${divMeta.bnName} বিভাগে প্রতি বর্গকিলোমিটারে গড় জনঘনত্ব প্রায় কত?`,
+            `What is the approximate population density per km² in ${divMeta.name} Division?`,
+            {
+              bn: `প্রায় ${formatNum(divDensity, 'bn')} জন/কিমি²`,
+              en: `~${divDensity.toLocaleString()} /km²`,
+            },
+            divisions
+              .filter((d) => d.id !== div.id && DIVISION_META[d.id]?.population > 0)
+              .map((d) => {
+                const den = Math.round(DIVISION_META[d.id].population / Math.max(1, DIVISION_META[d.id].areaKm2));
+                return { bn: `প্রায় ${formatNum(den, 'bn')} জন/কিমি²`, en: `~${den.toLocaleString()} /km²` };
+              })
+              .filter((x) => x.en !== `~${divDensity.toLocaleString()} /km²`),
+            `${divMeta.bnName} বিভাগে গড় জনঘনত্ব প্রায় ${formatNum(divDensity, 'bn')} জন/কিমি²।`,
+            `${divMeta.name} Division has an average density of ~${divDensity.toLocaleString()} people/km².`
+          )
+        );
+      }
+
+      pushQ(
+        buildQuestion(
+          nextId('div-spec'),
+          priority,
+          'heritage_facts',
+          `${divMeta.bnName} বিভাগের প্রধান কৃষি পণ্য, শিল্প বা বিশেষ উৎপাদন নিচের কোনটি?`,
+          `Which specialty produce, craft, or industry is ${divMeta.name} Division known for?`,
+          { bn: divMeta.specialtiesBn, en: divMeta.specialtiesEn },
+          divisions
+            .filter((d) => d.id !== div.id && DIVISION_META[d.id])
+            .map((d) => ({
+              bn: DIVISION_META[d.id].specialtiesBn,
+              en: DIVISION_META[d.id].specialtiesEn,
+            })),
+          `${divMeta.bnName} বিভাগের বিশেষ উৎপাদন: ${divMeta.specialtiesBn}।`,
+          `${divMeta.name} Division specialties: ${divMeta.specialtiesEn}.`
+        )
+      );
+
+      pushQ(
+        buildQuestion(
+          nextId('div-conn'),
+          priority,
+          'geography_borders',
+          `${divMeta.bnName} বিভাগের প্রধান সড়ক, সেতু, রেল বা বন্দর যোগাযোগ নিচের কোনটি?`,
+          `Which major transport corridor or port connects ${divMeta.name} Division?`,
+          { bn: divMeta.connectivityBn, en: divMeta.connectivityEn },
+          divisions
+            .filter((d) => d.id !== div.id && DIVISION_META[d.id])
+            .map((d) => ({
+              bn: DIVISION_META[d.id].connectivityBn,
+              en: DIVISION_META[d.id].connectivityEn,
+            })),
+          `${divMeta.bnName} বিভাগের যোগাযোগ ব্যবস্থা: ${divMeta.connectivityBn}।`,
+          `${divMeta.name} Division connectivity: ${divMeta.connectivityEn}.`
+        )
+      );
+
+      // External international border / Bay of Bengal check for division
+      const divExtEn = divMeta.externalBordersEn.join(' ');
+      const hasIndiaD = divExtEn.includes('India');
+      const hasMyanmarD = divExtEn.includes('Myanmar');
+      const hasBayD = divExtEn.includes('Bay of Bengal');
+      const divExtAns: OptionPair =
+        hasIndiaD && hasMyanmarD && hasBayD
+          ? { bn: 'ভারত, মায়ানমার ও বঙ্গোপসাগর', en: 'India, Myanmar & Bay of Bengal' }
+          : hasIndiaD && hasBayD
+          ? { bn: 'ভারত ও বঙ্গোপসাগর', en: 'India & Bay of Bengal' }
+          : hasIndiaD
+          ? { bn: 'ভারত (স্থলসীমান্ত)', en: 'India (Land border)' }
+          : hasBayD
+          ? { bn: 'বঙ্গোপসাগর (দক্ষিণ উপকূল)', en: 'Bay of Bengal (Southern Coast)' }
+          : { bn: 'অন্য কোনো দেশ বা সমুদ্রসীমা নেই', en: 'None (Interior division)' };
+      const divExtOpts: OptionPair[] = [
+        { bn: 'ভারত, মায়ানমার ও বঙ্গোপসাগর', en: 'India, Myanmar & Bay of Bengal' },
+        { bn: 'ভারত ও বঙ্গোপসাগর', en: 'India & Bay of Bengal' },
+        { bn: 'ভারত (স্থলসীমান্ত)', en: 'India (Land border)' },
+        { bn: 'বঙ্গোপসাগর (দক্ষিণ উপকূল)', en: 'Bay of Bengal (Southern Coast)' },
+        { bn: 'শুধু মায়ানমার (কোনো সমুদ্রসীমা নেই)', en: 'Myanmar only (Landlocked)' },
+      ].filter((o) => o.en !== divExtAns.en);
+      pushQ(
+        buildQuestion(
+          nextId('div-ext'),
+          priority,
+          'geography_borders',
+          `${divMeta.bnName} বিভাগের বহির্সীমানা (আন্তর্জাতিক সীমান্ত বা উপকূল) কোনটির সাথে যুক্ত?`,
+          `Which international border or coast bounds ${divMeta.name} Division?`,
+          divExtAns,
+          divExtOpts,
+          `${divMeta.bnName} বিভাগের বহির্সীমানা: ${divMeta.externalBordersBn.join(', ')}।`,
+          `External borders of ${divMeta.name} Division: ${divMeta.externalBordersEn.join(', ')}.`
+        )
+      );
+
       const nbrSet = new Set(divMeta.neighbors);
       const nonNbrDivs = divisions.filter((d) => d.id !== div.id && !nbrSet.has(d.id));
-      for (const ndId of divMeta.neighbors.slice(0, 2)) {
+      pushQ(
+        buildQuestion(
+          nextId('div-nbrcnt'),
+          priority,
+          'geography_borders',
+          `${divMeta.bnName} বিভাগের সাথে দেশের মোট কয়টি বিভাগের সরাসরি সীমান্ত রয়েছে?`,
+          `How many other divisions of Bangladesh directly border ${divMeta.name} Division?`,
+          { bn: `${formatNum(divMeta.neighbors.length, 'bn')}টি বিভাগ`, en: `${divMeta.neighbors.length}` },
+          [1, 2, 3, 4, 5, 6]
+            .filter((n) => n !== divMeta.neighbors.length)
+            .map((n) => ({ bn: `${formatNum(n, 'bn')}টি বিভাগ`, en: `${n}` })),
+          `${divMeta.bnName} বিভাগের সাথে ${formatNum(divMeta.neighbors.length, 'bn')}টি বিভাগের সীমান্ত রয়েছে।`,
+          `${divMeta.name} Division shares direct borders with ${divMeta.neighbors.length} divisions.`
+        )
+      );
+
+      divMeta.neighbors.forEach((ndId, idx) => {
         const nd = divMap.get(ndId);
-        if (!nd) continue;
+        if (!nd) return;
         pushQ(
           buildQuestion(
             nextId('div-nbr'),
             priority,
             'geography_borders',
-            `নিচের কোন বিভাগটি ${divMeta.bnName} বিভাগের সরাসরি সীমান্তবর্তী?`,
-            `Which division directly borders ${divMeta.name} Division?`,
+            idx % 2 === 0
+              ? `নিচের কোন বিভাগটি ${divMeta.bnName} বিভাগের সরাসরি সীমান্তবর্তী?`
+              : `মানচিত্রে ${divMeta.bnName} বিভাগের সাথে সরাসরি যুক্ত প্রতিবেশী বিভাগ কোনটি?`,
+            idx % 2 === 0
+              ? `Which division directly borders ${divMeta.name} Division?`
+              : `Which neighboring division directly touches ${divMeta.name} Division?`,
             { bn: `${nd.bnName} বিভাগ`, en: `${nd.name} Division` },
             nonNbrDivs.map((d) => ({ bn: `${d.bnName} বিভাগ`, en: `${d.name} Division` })),
             `${nd.bnName} বিভাগ ${divMeta.bnName} বিভাগের পার্শ্ববর্তী বিভাগ।`,
             `${nd.name} Division directly borders ${divMeta.name} Division.`
           )
         );
-      }
+      });
 
       if (divMeta.neighbors.length >= 3 && nonNbrDivs.length > 0) {
         const nonNbr = shuffleArray(nonNbrDivs)[0];
@@ -1043,15 +1460,173 @@ export function generateQuizQuestions(
         );
       }
 
-      for (let i = 0; i < Math.min(3, divMeta.landmarksBn.length); i++) {
-        const foreignLms: OptionPair[] = [];
-        for (const od of divisions.filter((d) => d.id !== div.id)) {
-          const om = DIVISION_META[od.id];
-          if (!om) continue;
-          om.landmarksBn.forEach((lm, idx) =>
-            foreignLms.push({ bn: lm, en: om.landmarksEn[idx] })
+      // Ranks & Size/Population comparisons of Division among 8 Divisions
+      const divsAreaDesc = [...divisions].sort(
+        (a, b) => (DIVISION_META[b.id]?.areaKm2 || 0) - (DIVISION_META[a.id]?.areaKm2 || 0)
+      );
+      const divAreaRank = divsAreaDesc.findIndex((x) => x.id === div.id) + 1;
+      const divBnOrd = (n: number) =>
+        n === 1 ? '১ম (বৃহত্তম)' : n === 2 ? '২য়' : n === 3 ? '৩য়' : n === 4 ? '৪র্থ' : n === 5 ? '৫ম' : n === 6 ? '৬ষ্ঠ' : n === 7 ? '৭ম' : '৮ম (ক্ষুদ্রতম)';
+      pushQ(
+        buildQuestion(
+          nextId('div-area-rank'),
+          priority,
+          'geography_borders',
+          `আয়তনের দিক থেকে বাংলাদেশের ৮টি বিভাগের মধ্যে ${divMeta.bnName} বিভাগের অবস্থান কততম?`,
+          `Where does ${divMeta.name} Division rank by area among the 8 divisions of Bangladesh?`,
+          { bn: divBnOrd(divAreaRank), en: `#${divAreaRank}` },
+          [1, 2, 3, 4, 5, 6, 7, 8]
+            .filter((n) => n !== divAreaRank)
+            .map((n) => ({ bn: divBnOrd(n), en: `#${n}` })),
+          `আয়তনের বিচারে ${divMeta.bnName} বিভাগ বাংলাদেশে ${divBnOrd(divAreaRank)}।`,
+          `${divMeta.name} Division ranks #${divAreaRank} by area among Bangladesh's 8 divisions.`
+        )
+      );
+
+      const divsPopDesc = [...divisions].sort(
+        (a, b) => (DIVISION_META[b.id]?.population || 0) - (DIVISION_META[a.id]?.population || 0)
+      );
+      const divPopRank = divsPopDesc.findIndex((x) => x.id === div.id) + 1;
+      const divPopBnOrd = (n: number) =>
+        n === 1 ? '১ম (সর্বাধিক জনবহুল)' : n === 2 ? '২য়' : n === 3 ? '৩য়' : n === 4 ? '৪র্থ' : n === 5 ? '৫ম' : n === 6 ? '৬ষ্ঠ' : n === 7 ? '৭ম' : '৮ম (সর্বনিম্ন)';
+      pushQ(
+        buildQuestion(
+          nextId('div-pop-rank'),
+          priority,
+          'heritage_facts',
+          `জনসংখ্যার দিক থেকে বাংলাদেশের ৮টি বিভাগের মধ্যে ${divMeta.bnName} বিভাগের অবস্থান কততম?`,
+          `Where does ${divMeta.name} Division rank by population among the 8 divisions?`,
+          { bn: divPopBnOrd(divPopRank), en: `#${divPopRank}` },
+          [1, 2, 3, 4, 5, 6, 7, 8]
+            .filter((n) => n !== divPopRank)
+            .map((n) => ({ bn: divPopBnOrd(n), en: `#${n}` })),
+          `জনসংখ্যার বিচারে ${divMeta.bnName} বিভাগ বাংলাদেশে ${divPopBnOrd(divPopRank)}।`,
+          `${divMeta.name} Division ranks #${divPopRank} by population.`
+        )
+      );
+
+      // Direct district membership inside this division
+      const divDistIdSet = new Set(divDists.map((d) => d.id));
+      const outsideDivDists = districts.filter((d) => !divDistIdSet.has(d.id));
+      shuffleArray(divDists)
+        .slice(0, Math.min(6, divDists.length))
+        .forEach((dd, idx) => {
+          pushQ(
+            buildQuestion(
+              nextId('div-dist-in'),
+              priority,
+              'geography_borders',
+              idx % 2 === 0
+                ? `নিচের কোন জেলাটি ${divMeta.bnName} বিভাগের অন্তর্ভুক্ত?`
+                : `প্রশাসনিকভাবে ${divMeta.bnName} বিভাগের একটি জেলা নিচের কোনটি?`,
+              idx % 2 === 0
+                ? `Which of the following districts belongs to ${divMeta.name} Division?`
+                : `Which district is part of ${divMeta.name} Division?`,
+              { bn: `${dd.bnName} জেলা`, en: `${dd.name} District` },
+              outsideDivDists.map((od) => ({ bn: `${od.bnName} জেলা`, en: `${od.name} District` })),
+              `${dd.bnName} জেলা ${divMeta.bnName} বিভাগের অন্তর্ভুক্ত।`,
+              `${dd.name} District is part of ${divMeta.name} Division.`
+            )
           );
-        }
+        });
+
+      shuffleArray(outsideDivDists)
+        .slice(0, 3)
+        .forEach((od, idx) => {
+          pushQ(
+            buildQuestion(
+              nextId('div-dist-not'),
+              priority,
+              'geography_borders',
+              idx === 0
+                ? `নিচের কোন জেলাটি ${divMeta.bnName} বিভাগের অন্তর্ভুক্ত নয়?`
+                : idx === 1
+                ? `প্রশাসনিকভাবে নিচের কোন জেলাটি ${divMeta.bnName} বিভাগের বাইরে অবস্থিত?`
+                : `${divMeta.bnName} বিভাগের প্রশাসনিক সীমার অন্তর্ভুক্ত নয় নিচের কোন জেলা?`,
+              idx === 0
+                ? `Which of these districts is NOT in ${divMeta.name} Division?`
+                : idx === 1
+                ? `Which district lies OUTSIDE ${divMeta.name} Division?`
+                : `Which of these districts does not belong to ${divMeta.name} Division?`,
+              { bn: `${od.bnName} জেলা`, en: `${od.name} District` },
+              divDists.map((dd) => ({ bn: `${dd.bnName} জেলা`, en: `${dd.name} District` })),
+              `${od.bnName} জেলা ${divMap.get(od.divisionId)?.bnName || ''} বিভাগের অন্তর্গত, ${divMeta.bnName} বিভাগের নয়।`,
+              `${od.name} District belongs to ${divMap.get(od.divisionId)?.name || 'another'} Division, not ${divMeta.name}.`
+            )
+          );
+        });
+
+      const outsideDivUpazilas = upazilas.filter((u) => u.divisionId !== div.id);
+      shuffleArray(divUpazilas)
+        .slice(0, 4)
+        .forEach((du) => {
+          pushQ(
+            buildQuestion(
+              nextId('div-upz-in'),
+              priority,
+              'geography_borders',
+              `নিচের কোন উপজেলা/থানাটি ${divMeta.bnName} বিভাগের ভেতরে অবস্থিত?`,
+              `Which of these upazilas/thanas is located within ${divMeta.name} Division?`,
+              { bn: du.bnName, en: du.name },
+              outsideDivUpazilas.map((ou) => ({ bn: ou.bnName, en: ou.name })),
+              `${du.bnName} (${distMap.get(du.districtId)?.bnName || ''} জেলা) ${divMeta.bnName} বিভাগে অবস্থিত।`,
+              `${du.name} (${distMap.get(du.districtId)?.name || ''} District) lies in ${divMeta.name} Division.`
+            )
+          );
+        });
+
+      // Rivers flowing through this division (strictly about division itself)
+      const divRivers = rivers.filter((r) => r.districts.some((did) => divDistIdSet.has(did)));
+      const outsideDivRivers = rivers.filter((r) => !r.districts.some((did) => divDistIdSet.has(did)));
+      shuffleArray(divRivers)
+        .slice(0, 5)
+        .forEach((dr) => {
+          pushQ(
+            buildQuestion(
+              nextId('div-riv-in'),
+              priority,
+              'rivers',
+              `তালিকাভুক্ত প্রধান ৩০টি নদীর মধ্যে কোনটি ${divMeta.bnName} বিভাগের ওপর দিয়ে প্রবাহিত হয়েছে?`,
+              `Which of these major rivers flows through ${divMeta.name} Division?`,
+              { bn: `${dr.bnName} নদী`, en: `${dr.name} River` },
+              outsideDivRivers.map((or) => ({ bn: `${or.bnName} নদী`, en: `${or.name} River` })),
+              `${dr.bnName} নদী ${divMeta.bnName} বিভাগের মধ্য দিয়ে প্রবাহিত হয়েছে।`,
+              `The ${dr.name} River flows through ${divMeta.name} Division.`
+            )
+          );
+        });
+      if (divRivers.length >= 3 && outsideDivRivers.length >= 2) {
+        shuffleArray(outsideDivRivers)
+          .slice(0, 2)
+          .forEach((or) => {
+            pushQ(
+              buildQuestion(
+                nextId('div-riv-not'),
+                priority,
+                'rivers',
+                `নিচের কোন প্রধান নদীটি ${divMeta.bnName} বিভাগের মধ্য দিয়ে প্রবাহিত হয়নি?`,
+                `Which major river does NOT flow through ${divMeta.name} Division?`,
+                { bn: `${or.bnName} নদী`, en: `${or.name} River` },
+                divRivers.map((dr) => ({ bn: `${dr.bnName} নদী`, en: `${dr.name} River` })),
+                `${or.bnName} নদী ${divMeta.bnName} বিভাগের মধ্য দিয়ে প্রবাহিত হয়নি।`,
+                `The ${or.name} River does not pass through ${divMeta.name} Division.`
+              )
+            );
+          });
+      }
+
+      // All landmarks of this division + safe reverse identification
+      const foreignDivLms: OptionPair[] = [];
+      for (const od of divisions.filter((d) => d.id !== div.id)) {
+        const om = DIVISION_META[od.id];
+        if (!om) continue;
+        om.landmarksBn.forEach((lm, idx) =>
+          foreignDivLms.push({ bn: lm, en: om.landmarksEn[idx] })
+        );
+      }
+      for (let i = 0; i < divMeta.landmarksBn.length; i++) {
+        const lmBn = divMeta.landmarksBn[i];
+        const lmEn = divMeta.landmarksEn[i];
         pushQ(
           buildQuestion(
             nextId('div-lm'),
@@ -1059,12 +1634,30 @@ export function generateQuizQuestions(
             'heritage_facts',
             `নিচের কোন ঐতিহাসিক বা দর্শনীয় স্থানটি ${divMeta.bnName} বিভাগে অবস্থিত?`,
             `Which landmark is located in ${divMeta.name} Division?`,
-            { bn: divMeta.landmarksBn[i], en: divMeta.landmarksEn[i] },
-            foreignLms,
-            `‘${divMeta.landmarksBn[i]}’ ${divMeta.bnName} বিভাগের অন্যতম পরিচিত স্থান।`,
-            `${divMeta.landmarksEn[i]} is a notable landmark in ${divMeta.name} Division.`
+            { bn: lmBn, en: lmEn },
+            foreignDivLms,
+            `‘${lmBn}’ ${divMeta.bnName} বিভাগের অন্যতম পরিচিত স্থান।`,
+            `${lmEn} is a notable landmark in ${divMeta.name} Division.`
           )
         );
+
+        if (!lmBn.includes(divMeta.bnName) && !lmEn.toLowerCase().includes(divMeta.name.toLowerCase())) {
+          pushQ(
+            buildQuestion(
+              nextId('div-lm-rev'),
+              priority,
+              'heritage_facts',
+              `দর্শনীয় স্থান ‘${lmBn}’ বাংলাদেশের কোন বিভাগে অবস্থিত?`,
+              `In which division of Bangladesh is ‘${lmEn}’ located?`,
+              { bn: `${divMeta.bnName} বিভাগ`, en: `${divMeta.name} Division` },
+              divisions
+                .filter((od) => od.id !== div.id)
+                .map((od) => ({ bn: `${od.bnName} বিভাগ`, en: `${od.name} Division` })),
+              `‘${lmBn}’ ${divMeta.bnName} বিভাগে অবস্থিত।`,
+              `${lmEn} lies in ${divMeta.name} Division.`
+            )
+          );
+        }
       }
     }
   };
@@ -1329,88 +1922,11 @@ export function generateQuizQuestions(
     const div = divMap.get(config.scopeId || divisions[0]?.id) || divisions[0];
     if (div) {
       addDivisionFacts(div, 1, true);
-      const divDists = districtsByDiv.get(div.id) || [];
-      for (const d of shuffleArray(divDists)) {
-        addDistrictFacts(d, 1, divDists.length <= 6);
-      }
-      const divDistSet = new Set(divDists.map((d) => d.id));
-      const divRivers = rivers.filter((r) => r.districts.some((did) => divDistSet.has(did)));
-      for (const r of shuffleArray(divRivers)) {
-        addRiverFacts(r, 1, true, `${div.bnName} বিভাগে প্রবাহিত`, `In ${div.name} Division,`);
-      }
     }
   } else if (config.scopeType === 'district') {
     const dist = distMap.get(config.scopeId || districts[0]?.id) || districts[0];
     if (dist) {
-      addDistrictFacts(dist, 1, true);
-
-      // Upazila-to-upazila neighbor & river questions strictly scoped to this district
-      const distUpazilas = upazilasByDist.get(dist.id) || [];
-      const outsideUpazilas = upazilas.filter((u) => u.districtId !== dist.id);
-      for (const u of shuffleArray(distUpazilas).slice(0, 6)) {
-        const uNbrSet = new Set(u.neighbors);
-        const uNbrs = u.neighbors
-          .map((uid) => upazilaMap.get(uid))
-          .filter((nu): nu is GeoUpazila => Boolean(nu));
-        if (uNbrs.length > 0) {
-          const pickedNbr = shuffleArray(uNbrs)[0];
-          const nonNbrs = outsideUpazilas
-            .concat(distUpazilas.filter((du) => du.id !== u.id && !uNbrSet.has(du.id)))
-            .filter((x) => !uNbrSet.has(x.id) && x.id !== u.id);
-          pushQ(
-            buildQuestion(
-              nextId('dist-unbr'),
-              1,
-              'geography_borders',
-              `${dist.bnName} জেলার ${u.bnName}-এর সরাসরি সীমান্তবর্তী কোনটি?`,
-              `Which of the following directly borders ${u.name} (${dist.name} District)?`,
-              { bn: pickedNbr.bnName, en: pickedNbr.name },
-              nonNbrs.map((x) => ({ bn: x.bnName, en: x.name })),
-              `${pickedNbr.bnName} ${u.bnName}-এর পার্শ্ববর্তী এলাকা।`,
-              `${pickedNbr.name} shares a direct boundary with ${u.name}.`
-            )
-          );
-        }
-        if (u.rivers.length > 0) {
-          const r = riverMap.get(u.rivers[0]);
-          if (r) {
-            pushQ(
-              buildQuestion(
-                nextId('dist-uriv'),
-                1,
-                'rivers',
-                `${dist.bnName} জেলার কোন এলাকার মধ্য দিয়ে ${r.bnName} নদী প্রবাহিত হয়েছে?`,
-                `Through which upazila of ${dist.name} District does the ${r.name} River flow?`,
-                { bn: u.bnName, en: u.name },
-                distUpazilas
-                  .filter((du) => du.id !== u.id && !du.rivers.includes(r.id))
-                  .concat(outsideUpazilas)
-                  .map((x) => ({ bn: x.bnName, en: x.name })),
-                `${r.bnName} নদী ${dist.bnName} জেলার ${u.bnName} অতিক্রম করেছে।`,
-                `The ${r.name} River flows through ${u.name} in ${dist.name} District.`
-              )
-            );
-          }
-        }
-      }
-
-      // Tier 2 supporting regional river/division context (only if Tier 1 runs short, e.g. rivers category)
-      const div = divMap.get(dist.divisionId);
-      if (div) {
-        addDivisionFacts(div, 2, false);
-        const divDistSet = new Set((districtsByDiv.get(div.id) || []).map((d) => d.id));
-        for (const r of shuffleArray(
-          rivers.filter((rv) => !rv.districts.includes(dist.id) && rv.districts.some((id) => divDistSet.has(id)))
-        )) {
-          addRiverFacts(
-            r,
-            2,
-            false,
-            `${dist.bnName}-এর সংলগ্ন ${div.bnName} অঞ্চলের`,
-            `In ${div.name} region near ${dist.name},`
-          );
-        }
-      }
+      addDistrictFacts(dist, 1, true, undefined, undefined, false);
     }
   } else if (config.scopeType === 'upazila') {
     const u = upazilaMap.get(config.scopeId || upazilas[0]?.id) || upazilas[0];
@@ -1611,7 +2127,7 @@ export function generateQuizQuestions(
           }
         }
 
-        // 5C. Area & Population Rank within Parent District
+        // 5C. Area & Population Rank within Parent District (direct ranking of u)
         const bnOrdinal = (n: number) => {
           if (n === 1) return '১ম';
           if (n === 2) return '২য়';
@@ -1623,7 +2139,7 @@ export function generateQuizQuestions(
           return `${formatNum(n, 'bn')}তম`;
         };
 
-        if (distUpazilas.length >= 4) {
+        if (distUpazilas.length >= 2) {
           const sortedAreaSibs = [...distUpazilas].sort((a, b) => b.areaKm2 - a.areaKm2);
           const areaRank = sortedAreaSibs.findIndex((s) => s.id === u.id) + 1;
           const areaRankLabel: OptionPair =
@@ -1632,8 +2148,9 @@ export function generateQuizQuestions(
               : areaRank === distUpazilas.length
               ? { bn: `${bnOrdinal(areaRank)} (জেলার ক্ষুদ্রতম)`, en: `${areaRank} (Smallest in district)` }
               : { bn: `${bnOrdinal(areaRank)} স্থান`, en: `Rank #${areaRank}` };
+          const areaRankMax = Math.max(4, distUpazilas.length);
           const areaRankDistractors: OptionPair[] = Array.from(
-            { length: distUpazilas.length },
+            { length: areaRankMax },
             (_, idx) => idx + 1
           )
             .filter((r) => r !== areaRank)
@@ -1658,97 +2175,355 @@ export function generateQuizQuestions(
             )
           );
 
-          const sortedPopSibs = [...distUpazilas].sort((a, b) => (b.population || 0) - (a.population || 0));
-          const popRank = sortedPopSibs.findIndex((s) => s.id === u.id) + 1;
-          const popRankLabel: OptionPair =
-            popRank === 1
-              ? { bn: '১ম (সর্বাধিক জনবহুল)', en: '1st (Most populous)' }
-              : popRank === distUpazilas.length
-              ? { bn: `${bnOrdinal(popRank)} (সর্বনিম্ন জনসংখ্যা)`, en: `${popRank} (Least populous)` }
-              : { bn: `${bnOrdinal(popRank)} স্থান`, en: `Rank #${popRank}` };
-          const popRankDistractors: OptionPair[] = Array.from(
-            { length: distUpazilas.length },
-            (_, idx) => idx + 1
-          )
-            .filter((r) => r !== popRank)
-            .map((r) =>
-              r === 1
+          if (uPop > 0) {
+            const sortedPopSibs = [...distUpazilas].sort((a, b) => (b.population || 0) - (a.population || 0));
+            const popRank = sortedPopSibs.findIndex((s) => s.id === u.id) + 1;
+            const popRankLabel: OptionPair =
+              popRank === 1
                 ? { bn: '১ম (সর্বাধিক জনবহুল)', en: '1st (Most populous)' }
-                : r === distUpazilas.length
-                ? { bn: `${bnOrdinal(r)} (সর্বনিম্ন জনসংখ্যা)`, en: `${r} (Least populous)` }
-                : { bn: `${bnOrdinal(r)} স্থান`, en: `Rank #${r}` }
+                : popRank === distUpazilas.length
+                ? { bn: `${bnOrdinal(popRank)} (সর্বনিম্ন জনসংখ্যা)`, en: `${popRank} (Least populous)` }
+                : { bn: `${bnOrdinal(popRank)} স্থান`, en: `Rank #${popRank}` };
+            const popRankDistractors: OptionPair[] = Array.from(
+              { length: areaRankMax },
+              (_, idx) => idx + 1
+            )
+              .filter((r) => r !== popRank)
+              .map((r) =>
+                r === 1
+                  ? { bn: '১ম (সর্বাধিক জনবহুল)', en: '1st (Most populous)' }
+                  : r === distUpazilas.length
+                  ? { bn: `${bnOrdinal(r)} (সর্বনিম্ন জনসংখ্যা)`, en: `${r} (Least populous)` }
+                  : { bn: `${bnOrdinal(r)} স্থান`, en: `Rank #${r}` }
+              );
+            pushQ(
+              buildQuestion(
+                nextId('u-pop-rank'),
+                1,
+                'heritage_facts',
+                `জনসংখ্যার দিক থেকে ${parentDist.bnName} জেলার ${formatNum(distUpazilas.length, 'bn')}টি ইউনিটের মধ্যে ${uLabelBn}-এর অবস্থান কততম?`,
+                `Where does ${uLabelEn} rank by population among the ${distUpazilas.length} units of ${parentDist.name} District?`,
+                popRankLabel,
+                popRankDistractors,
+                `${uLabelBn} (~${formatNum(uPop, 'bn')} জন) জনসংখ্যায় ${parentDist.bnName} জেলায় ${popRankLabel.bn}।`,
+                `${uLabelEn} (~${uPop.toLocaleString()}) ranks ${popRankLabel.en} in ${parentDist.name} District.`
+              )
             );
+          }
+        }
+
+        // 5D. Area, Population, Density Brackets & District Share strictly for u
+        const areaBrackets: { match: boolean; bn: string; en: string }[] = [
+          { match: u.areaKm2 < 100, bn: '১০০ বর্গ কিমি-র কম', en: 'Under 100 km²' },
+          { match: u.areaKm2 >= 100 && u.areaKm2 < 250, bn: '১০০ থেকে ২৪৯ বর্গ কিমি', en: '100 to 249 km²' },
+          { match: u.areaKm2 >= 250 && u.areaKm2 < 400, bn: '২৫০ থেকে ৩৯৯ বর্গ কিমি', en: '250 to 399 km²' },
+          { match: u.areaKm2 >= 400, bn: '৪০০ বর্গ কিমি বা তার বেশি', en: '400 km² or more' },
+        ];
+        const matchedAreaBr = areaBrackets.find((b) => b.match) || areaBrackets[1];
+        pushQ(
+          buildQuestion(
+            nextId('u-area-br'),
+            1,
+            'geography_borders',
+            `আয়তনের পরিমাপ অনুযায়ী ${uLabelBn} নিচের কোন পরিসরের অন্তর্ভুক্ত?`,
+            `Which area size range applies to ${uLabelEn}?`,
+            { bn: matchedAreaBr.bn, en: matchedAreaBr.en },
+            areaBrackets.filter((b) => b.en !== matchedAreaBr.en).map((b) => ({ bn: b.bn, en: b.en })),
+            `${uLabelBn}-এর আয়তন প্রায় ${formatNum(u.areaKm2, 'bn')} বর্গ কিমি, যা ‘${matchedAreaBr.bn}’ পরিসরে পড়ে।`,
+            `${uLabelEn} covers ~${u.areaKm2} km², falling in the ${matchedAreaBr.en.toLowerCase()} range.`
+          )
+        );
+
+        if (uPop > 0) {
+          const popBrackets: { match: boolean; bn: string; en: string }[] = [
+            { match: uPop < 200000, bn: '২ লাখের কম', en: 'Under 200,000' },
+            { match: uPop >= 200000 && uPop < 350000, bn: '২ লাখ থেকে ৩.৫ লাখের কম', en: '200,000 to 349,999' },
+            { match: uPop >= 350000 && uPop < 500000, bn: '৩.৫ লাখ থেকে ৫ লাখের কম', en: '350,000 to 499,999' },
+            { match: uPop >= 500000, bn: '৫ লাখ বা তার বেশি', en: '500,000 or more' },
+          ];
+          const matchedPopBr = popBrackets.find((b) => b.match) || popBrackets[1];
           pushQ(
             buildQuestion(
-              nextId('u-pop-rank'),
+              nextId('u-pop-br'),
               1,
               'heritage_facts',
-              `জনসংখ্যার দিক থেকে ${parentDist.bnName} জেলার ${formatNum(distUpazilas.length, 'bn')}টি ইউনিটের মধ্যে ${uLabelBn}-এর অবস্থান কততম?`,
-              `Where does ${uLabelEn} rank by population among the ${distUpazilas.length} units of ${parentDist.name} District?`,
-              popRankLabel,
-              popRankDistractors,
-              `${uLabelBn} (~${formatNum(uPop, 'bn')} জন) জনসংখ্যায় ${parentDist.bnName} জেলায় ${popRankLabel.bn}।`,
-              `${uLabelEn} (~${uPop.toLocaleString()}) ranks ${popRankLabel.en} in ${parentDist.name} District.`
+              `২০২২ সালের জনশুমারি অনুযায়ী ${uLabelBn}-এর জনসংখ্যা কোন সীমার মধ্যে রয়েছে?`,
+              `Which 2022 census population bracket does ${uLabelEn} fall into?`,
+              { bn: matchedPopBr.bn, en: matchedPopBr.en },
+              popBrackets.filter((b) => b.en !== matchedPopBr.en).map((b) => ({ bn: b.bn, en: b.en })),
+              `${uLabelBn}-এর জনসংখ্যা প্রায় ${formatNum(uPop, 'bn')} জন (${matchedPopBr.bn})।`,
+              `${uLabelEn} has ~${uPop.toLocaleString()} residents (${matchedPopBr.en}).`
+            )
+          );
+
+          const uDens = u.areaKm2 > 0 ? Math.round(uPop / u.areaKm2) : 0;
+          if (uDens > 0) {
+            const densBrackets: { match: boolean; bn: string; en: string }[] = [
+              { match: uDens < 600, bn: '৬০০ জন/কিমি²-এর কম', en: 'Under 600 /km²' },
+              { match: uDens >= 600 && uDens < 1200, bn: '৬০০ থেকে ১,১৯৯ জন/কিমি²', en: '600 to 1,199 /km²' },
+              { match: uDens >= 1200 && uDens < 2500, bn: '১,২০০ থেকে ২,৪৯৯ জন/কিমি²', en: '1,200 to 2,499 /km²' },
+              { match: uDens >= 2500, bn: '২,৫০০ জন/কিমি² বা তার বেশি', en: '2,500 /km² or more' },
+            ];
+            const matchedDensBr = densBrackets.find((b) => b.match) || densBrackets[1];
+            pushQ(
+              buildQuestion(
+                nextId('u-dens-br'),
+                1,
+                'heritage_facts',
+                `জনঘনত্বের বিচারে ${uLabelBn} কোন স্তরের অন্তর্ভুক্ত?`,
+                `Which population density tier describes ${uLabelEn}?`,
+                { bn: matchedDensBr.bn, en: matchedDensBr.en },
+                densBrackets.filter((b) => b.en !== matchedDensBr.en).map((b) => ({ bn: b.bn, en: b.en })),
+                `${uLabelBn}-এ জনঘনত্ব প্রায় ${formatNum(uDens, 'bn')} জন/কিমি² (${matchedDensBr.bn})।`,
+                `${uLabelEn} has a density of ~${uDens.toLocaleString()} /km² (${matchedDensBr.en}).`
+              )
+            );
+          }
+        }
+
+        if (distMeta && distMeta.areaKm2 > 0) {
+          const areaSharePct = Math.max(1, Math.min(99, Math.round((u.areaKm2 / distMeta.areaKm2) * 100)));
+          const shareCandidates = [
+            areaSharePct + 14,
+            areaSharePct + 27,
+            areaSharePct > 16 ? areaSharePct - 12 : areaSharePct + 39,
+            areaSharePct > 28 ? areaSharePct - 24 : areaSharePct + 48,
+          ].filter((v) => v > 0 && v <= 99 && v !== areaSharePct);
+          pushQ(
+            buildQuestion(
+              nextId('u-dshare-a'),
+              1,
+              'geography_borders',
+              `${parentDist.bnName} জেলার মোট আয়তনের প্রায় কত শতাংশ জুড়ে ${uLabelBn} অবস্থিত?`,
+              `Approximately what percentage of ${parentDist.name} District’s area does ${uLabelEn} occupy?`,
+              { bn: `প্রায় ${formatNum(areaSharePct, 'bn')}%`, en: `~${areaSharePct}%` },
+              shareCandidates.map((v) => ({ bn: `প্রায় ${formatNum(v, 'bn')}%`, en: `~${v}%` })),
+              `${uLabelBn} (${formatNum(u.areaKm2, 'bn')} কিমি²) ${parentDist.bnName} জেলার মোট আয়তনের প্রায় ${formatNum(areaSharePct, 'bn')}%।`,
+              `${uLabelEn} (${u.areaKm2} km²) accounts for roughly ${areaSharePct}% of ${parentDist.name} District.`
             )
           );
         }
 
-        // 6. Sibling upazilas in the same district
-        const sameDistSiblings = distUpazilas.filter((du) => du.id !== u.id);
-        const outsideUpazilas = upazilas.filter((ou) => ou.districtId !== parentDist.id);
-        const sibPromptsBn = [
-          `${uLabelBn}-এর মতোই ${parentDist.bnName} জেলার অপর একটি উপজেলা/থানা নিচের কোনটি?`,
-          `${parentDist.bnName} জেলার প্রশাসনিক সীমার মধ্যে ${uLabelBn}-এর সাথে আর কোনটি অবস্থিত?`,
-          `নিচের কোন এলাকাটি ${u.bnName}-এর সহ-উপজেলা/থানা হিসেবে ${parentDist.bnName} জেলার অংশ?`,
-        ];
-        const sibPromptsEn = [
-          `Which of these upazilas/thanas shares ${parentDist.name} District with ${uLabelEn}?`,
-          `Which unit lies alongside ${uLabelEn} inside ${parentDist.name} District?`,
-          `Which of the following is also part of ${parentDist.name} District like ${u.name}?`,
-        ];
-        shuffleArray(sameDistSiblings)
-          .slice(0, 3)
-          .forEach((sib, idx) => {
-            pushQ(
-              buildQuestion(
-                nextId('u-sib'),
-                1,
-                'geography_borders',
-                sibPromptsBn[idx % sibPromptsBn.length],
-                sibPromptsEn[idx % sibPromptsEn.length],
-                { bn: sib.bnName, en: sib.name },
-                outsideUpazilas.map((ou) => ({ bn: ou.bnName, en: ou.name })),
-                `${u.bnName} এবং ${sib.bnName} উভয়ই ${parentDist.bnName} জেলার অন্তর্ভুক্ত।`,
-                `Both ${u.name} and ${sib.name} belong to ${parentDist.name} District.`
-              )
-            );
-          });
-
-        if (sameDistSiblings.length >= 3 && outsideUpazilas.length >= 2) {
-          shuffleArray(outsideUpazilas)
-            .slice(0, 2)
-            .forEach((pickedOutsider, idx) => {
-              pushQ(
-                buildQuestion(
-                  nextId('u-non-sib'),
-                  1,
-                  'geography_borders',
-                  idx === 0
-                    ? `নিচের কোনটি ${uLabelBn}-এর নিজ জেলা (${parentDist.bnName})-এর অন্তর্ভুক্ত নয়?`
-                    : `প্রশাসনিকভাবে নিচের কোন এলাকাটি ${uLabelBn}-এর সাথে একই জেলায় (${parentDist.bnName}) অবস্থিত নয়?`,
-                  idx === 0
-                    ? `Which of these is NOT in ${uLabelEn}’s district (${parentDist.name})?`
-                    : `Which of these administrative units does NOT share ${parentDist.name} District with ${uLabelEn}?`,
-                  { bn: pickedOutsider.bnName, en: pickedOutsider.name },
-                  sameDistSiblings.map((s) => ({ bn: s.bnName, en: s.name })),
-                  `${pickedOutsider.bnName} ${distMap.get(pickedOutsider.districtId)?.bnName || ''} জেলায় অবস্থিত, ${parentDist.bnName} জেলায় নয়।`,
-                  `${pickedOutsider.name} is located in ${distMap.get(pickedOutsider.districtId)?.name || 'another'} District, not ${parentDist.name}.`
-                )
-              );
-            });
+        if (uPop > 0 && distMeta && distMeta.population > 0) {
+          const popSharePct = Math.max(1, Math.min(99, Math.round((uPop / distMeta.population) * 100)));
+          const popShareCandidates = [
+            popSharePct + 13,
+            popSharePct + 25,
+            popSharePct > 15 ? popSharePct - 11 : popSharePct + 36,
+            popSharePct > 26 ? popSharePct - 21 : popSharePct + 47,
+          ].filter((v) => v > 0 && v <= 99 && v !== popSharePct);
+          pushQ(
+            buildQuestion(
+              nextId('u-dshare-p'),
+              1,
+              'heritage_facts',
+              `${parentDist.bnName} জেলার মোট জনসংখ্যার প্রায় কত শতাংশ ${uLabelBn}-এ বসবাস করে?`,
+              `Approximately what share of ${parentDist.name} District’s population resides in ${uLabelEn}?`,
+              { bn: `প্রায় ${formatNum(popSharePct, 'bn')}%`, en: `~${popSharePct}%` },
+              popShareCandidates.map((v) => ({ bn: `প্রায় ${formatNum(v, 'bn')}%`, en: `~${v}%` })),
+              `${uLabelBn}-এ ${parentDist.bnName} জেলার মোট জনসংখ্যার প্রায় ${formatNum(popSharePct, 'bn')}% মানুষের বসবাস।`,
+              `${uLabelEn} holds about ${popSharePct}% of ${parentDist.name} District’s population.`
+            )
+          );
         }
 
-        // 7. Direct area comparison against siblings/neighbors
+        // 6. Direct Administrative & Geographic Identity Questions (All 544 Upazilas)
+        const isSadarUnit = u.name.toLowerCase().includes('sadar') || u.bnName.includes('সদর');
+        pushQ(
+          buildQuestion(
+            nextId('u-sadar'),
+            1,
+            'heritage_facts',
+            `প্রশাসনিক নাম ও মর্যাদা অনুযায়ী ${uLabelBn} কি ‘${parentDist.bnName} সদর’ হিসেবে পরিচিত?`,
+            `Is ${uLabelEn} designated as ${parentDist.name} Sadar?`,
+            isSadarUnit
+              ? { bn: `হ্যাঁ, এটি ${parentDist.bnName} সদর এলাকা`, en: `Yes, it is ${parentDist.name} Sadar` }
+              : { bn: `না, এটি সদর নয় — জেলার অন্য একটি ইউনিট`, en: `No, it is a non-Sadar unit in ${parentDist.name}` },
+            [
+              isSadarUnit
+                ? { bn: `না, এটি সদর নয় — জেলার অন্য একটি ইউনিট`, en: `No, it is a non-Sadar unit in ${parentDist.name}` }
+                : { bn: `হ্যাঁ, এটি ${parentDist.bnName} সদর এলাকা`, en: `Yes, it is ${parentDist.name} Sadar` },
+              { bn: `এটি বাংলাদেশের কোনো জেলাতেই অবস্থিত নয়`, en: `It is not located in any district of Bangladesh` },
+              { bn: `এটি একটি স্বতন্ত্র বিভাগীয় সদর দপ্তর মাত্র`, en: `It is exclusively a divisional border outpost` },
+            ],
+            isSadarUnit
+              ? `${uLabelBn} ${parentDist.bnName} জেলার সদর প্রশাসনিক এলাকা।`
+              : `${uLabelBn} ${parentDist.bnName} জেলার একটি আলাদা উপজেলা/থানা (সদর নয়)।`,
+            isSadarUnit
+              ? `${uLabelEn} serves as ${parentDist.name} Sadar.`
+              : `${uLabelEn} is a non-Sadar administrative unit in ${parentDist.name} District.`
+          )
+        );
+
+        pushQ(
+          buildQuestion(
+            nextId('u-admin-unit'),
+            1,
+            'heritage_facts',
+            `প্রশাসনিক কাঠামো অনুযায়ী ${u.bnName} নিচের কোন ধরনের এলাকা?`,
+            `Administratively, what type of local unit is ${u.name}?`,
+            uDetail.isUrbanThana
+              ? { bn: 'মহানগর থানা এলাকা', en: 'Metropolitan City Thana' }
+              : { bn: 'উপজেলা প্রশাসনিক এলাকা', en: 'Upazila Administrative Unit' },
+            [
+              uDetail.isUrbanThana
+                ? { bn: 'উপজেলা প্রশাসনিক এলাকা', en: 'Upazila Administrative Unit' }
+                : { bn: 'মহানগর থানা এলাকা', en: 'Metropolitan City Thana' },
+              { bn: 'বিভাগীয় সদর দপ্তর মাত্র', en: 'Divisional Headquarters Only' },
+              { bn: 'স্বতন্ত্র জেলা', en: 'Independent District' },
+            ],
+            `${u.bnName} ${parentDist.bnName} জেলার একটি ${uDetail.isUrbanThana ? 'মহানগর থানা' : 'উপজেলা'}।`,
+            `${u.name} is a ${uDetail.isUrbanThana ? 'metropolitan thana' : 'upazila'} under ${parentDist.name} District.`
+          )
+        );
+
+        const terrainBn = uDetail.isUrbanThana
+          ? 'মহানগর থানা এলাকা'
+          : uDetail.isHill
+          ? 'পার্বত্য ও পাহাড়ি অঞ্চল'
+          : uDetail.isHaor
+          ? 'হাওর ও বিল বেষ্টিত অঞ্চল'
+          : uDetail.isCoastal
+          ? 'উপকূলীয় ব-দ্বীপ অঞ্চল'
+          : 'নদীবিধৌত সমভূমি ও কৃষি অঞ্চল';
+        const terrainEn = uDetail.isUrbanThana
+          ? 'Metropolitan urban thana'
+          : uDetail.isHill
+          ? 'Hill-tract forested region'
+          : uDetail.isHaor
+          ? 'Seasonal haor wetland basin'
+          : uDetail.isCoastal
+          ? 'Coastal deltaic estuary zone'
+          : 'Riverine alluvial plain & agricultural zone';
+        const terrainOptions: OptionPair[] = [
+          { bn: 'মহানগর থানা এলাকা', en: 'Metropolitan urban thana' },
+          { bn: 'পার্বত্য ও পাহাড়ি অঞ্চল', en: 'Hill-tract forested region' },
+          { bn: 'হাওর ও বিল বেষ্টিত অঞ্চল', en: 'Seasonal haor wetland basin' },
+          { bn: 'উপকূলীয় ব-দ্বীপ অঞ্চল', en: 'Coastal deltaic estuary zone' },
+          { bn: 'নদীবিধৌত সমভূমি ও কৃষি অঞ্চল', en: 'Riverine alluvial plain & agricultural zone' },
+        ].filter((o) => o.en !== terrainEn);
+        pushQ(
+          buildQuestion(
+            nextId('u-terrain'),
+            1,
+            'heritage_facts',
+            `ভৌগোলিক ও প্রাকৃতিক বৈশিষ্ট্যের দিক থেকে ${uLabelBn} কোন ধরনের অঞ্চল?`,
+            `How is ${uLabelEn} classified geographically?`,
+            { bn: terrainBn, en: terrainEn },
+            terrainOptions,
+            `${uLabelBn} (${parentDist.bnName} জেলা) একটি ${terrainBn}।`,
+            `${uLabelEn} (${parentDist.name} District) is a ${terrainEn.toLowerCase()}.`
+          )
+        );
+
+        pushQ(
+          buildQuestion(
+            nextId('u-coastal-flag'),
+            1,
+            'geography_borders',
+            `ভৌগোলিক অবস্থান অনুযায়ী ${uLabelBn} কি বাংলাদেশের উপকূলীয় অঞ্চলের অন্তর্ভুক্ত?`,
+            `Geographically, is ${uLabelEn} part of Bangladesh’s coastal belt?`,
+            uDetail.isCoastal
+              ? { bn: 'হ্যাঁ, এটি উপকূলীয় অঞ্চলের অন্তর্ভুক্ত', en: 'Yes, it lies in the coastal region' }
+              : { bn: 'না, এটি অভ্যন্তরীণ বা পার্বত্য/নগর অঞ্চল', en: 'No, it is an inland, hill, or urban area' },
+            [
+              uDetail.isCoastal
+                ? { bn: 'না, এটি অভ্যন্তরীণ বা পার্বত্য/নগর অঞ্চল', en: 'No, it is an inland, hill, or urban area' }
+                : { bn: 'হ্যাঁ, এটি উপকূলীয় অঞ্চলের অন্তর্ভুক্ত', en: 'Yes, it lies in the coastal region' },
+              { bn: 'হ্যাঁ, এটি বাংলাদেশের উত্তর-পশ্চিম তিস্তা-বরেন্দ্র উপকূল', en: 'Yes, on the northwestern Barind coast' },
+              { bn: 'হ্যাঁ, এটি পার্বত্য হিমালয় উপকূলীয় অঞ্চল', en: 'Yes, on a Himalayan alpine coast' },
+            ],
+            uDetail.isCoastal
+              ? `${uLabelBn} (${parentDist.bnName} জেলা) বাংলাদেশের উপকূলীয় ব-দ্বীপ অঞ্চলের অন্তর্ভুক্ত।`
+              : `${uLabelBn} উপকূলীয় এলাকা নয়।`,
+            uDetail.isCoastal
+              ? `${uLabelEn} lies inside Bangladesh’s coastal zone.`
+              : `${uLabelEn} is not part of Bangladesh’s coastal zone.`
+          )
+        );
+
+        pushQ(
+          buildQuestion(
+            nextId('u-hill-flag'),
+            1,
+            'geography_borders',
+            `পার্বত্য ও পাহাড়ি ভূ-প্রকৃতি বিচারে ${uLabelBn} সম্পর্কে নিচের কোন তথ্যটি সঠিক?`,
+            `Which statement accurately describes hill-tract geography for ${uLabelEn}?`,
+            uDetail.isHill
+              ? { bn: 'হ্যাঁ, এটি পার্বত্য ও পাহাড়ি ভূ-প্রকৃতির অঞ্চল', en: 'Yes, it is a hill-tract forested region' }
+              : { bn: 'না, এটি পার্বত্য জেলাভুক্ত পাহাড়ি অঞ্চল নয়', en: 'No, it is not in a hill-tract mountainous belt' },
+            [
+              uDetail.isHill
+                ? { bn: 'না, এটি পার্বত্য জেলাভুক্ত পাহাড়ি অঞ্চল নয়', en: 'No, it is not in a hill-tract mountainous belt' }
+                : { bn: 'হ্যাঁ, এটি পার্বত্য ও পাহাড়ি ভূ-প্রকৃতির অঞ্চল', en: 'Yes, it is a hill-tract forested region' },
+              { bn: 'এটি সুন্দরবনের গহীন ম্যানগ্রোভ বনাঞ্চলের দ্বীপ', en: 'It is a deep Sundarbans mangrove island only' },
+              { bn: 'এটি বাংলাদেশের একমাত্র বরফাবৃত শৃঙ্গ', en: 'It is Bangladesh’s sole snow-capped summit' },
+            ],
+            uDetail.isHill
+              ? `${uLabelBn} পার্বত্য ও পাহাড়ি ভূ-প্রকৃতির অঞ্চল।`
+              : `${uLabelBn} পার্বত্য ভূ-প্রকৃতির অঞ্চল নয়।`,
+            uDetail.isHill
+              ? `${uLabelEn} features hill-tract terrain.`
+              : `${uLabelEn} is not a hill-tract zone.`
+          )
+        );
+
+        pushQ(
+          buildQuestion(
+            nextId('u-haor-flag'),
+            1,
+            'heritage_facts',
+            `জলাভূমি ও হাওর প্রকৃতি বিবেচনায় ${uLabelBn} সম্পর্কে কোনটি সঠিক?`,
+            `Which statement fits ${uLabelEn} regarding haor wetland geography?`,
+            uDetail.isHaor
+              ? { bn: 'হ্যাঁ, এটি বৃহত্তর হাওর ও বিল অববাহিকার অংশ', en: 'Yes, it lies within the seasonal haor wetland basin' }
+              : { bn: 'না, এটি মূল হাওর অববাহিকার এলাকা নয়', en: 'No, it is outside the core haor wetland basin' },
+            [
+              uDetail.isHaor
+                ? { bn: 'না, এটি মূল হাওর অববাহিকার এলাকা নয়', en: 'No, it is outside the core haor wetland basin' }
+                : { bn: 'হ্যাঁ, এটি বৃহত্তর হাওর ও বিল অববাহিকার অংশ', en: 'Yes, it lies within the seasonal haor wetland basin' },
+              { bn: 'এটি শুষ্ক বালুকাময় মরুভূমি এলাকা', en: 'It is an arid sandy desert basin' },
+              { bn: 'এটি বাংলাদেশের একমাত্র আগ্নেয়গিরি অঞ্চল', en: 'It is Bangladesh’s volcanic crater zone' },
+            ],
+            uDetail.isHaor
+              ? `${uLabelBn} হাওর ও বিল বেষ্টিত অঞ্চল।`
+              : `${uLabelBn} মূল হাওর অববাহিকার অন্তর্ভুক্ত নয়।`,
+            uDetail.isHaor
+              ? `${uLabelEn} lies inside the haor basin.`
+              : `${uLabelEn} is outside the core haor wetland basin.`
+          )
+        );
+
+        const islandNamesBn = ['হাতিয়া', 'সন্দ্বীপ', 'কুতুবদিয়া', 'মহেশখালী', 'মনপুরা', 'ভোলা সদর', 'দৌলতখান', 'বোরহানউদ্দিন', 'তজুমদ্দিন', 'লালমোহন', 'চরফ্যাশন'];
+        const isIslandUnit = islandNamesBn.some((nm) => u.bnName.includes(nm));
+        pushQ(
+          buildQuestion(
+            nextId('u-island-flag'),
+            1,
+            'geography_borders',
+            `দ্বীপ-বৈশিষ্ট্য অনুযায়ী ${uLabelBn} সম্পর্কে কোন বিবৃতিটি সঠিক?`,
+            `Which statement describes ${uLabelEn}’s island geography?`,
+            isIslandUnit
+              ? { bn: 'হ্যাঁ, এটি বঙ্গোপসাগর বা মেঘনা মোহনার দ্বীপাঞ্চল', en: 'Yes, it is a coastal or estuary island territory' }
+              : { bn: 'না, এটি মূলত মূল ভূখণ্ড বা স্থলসংযুক্ত এলাকা', en: 'No, it is part of the contiguous mainland' },
+            [
+              isIslandUnit
+                ? { bn: 'না, এটি মূলত মূল ভূখণ্ড বা স্থলসংযুক্ত এলাকা', en: 'No, it is part of the contiguous mainland' }
+                : { bn: 'হ্যাঁ, এটি বঙ্গোপসাগর বা মেঘনা মোহনার দ্বীপাঞ্চল', en: 'Yes, it is a coastal or estuary island territory' },
+              { bn: 'এটি বঙ্গোপসাগরের গভীর সমুদ্রের আন্তর্জাতিক ভূখণ্ড', en: 'It is an international deep-sea territory outside Bangladesh' },
+              { bn: 'এটি ভারত মহাসাগরের একটি স্বাধীন দ্বীপরাষ্ট্র', en: 'It is an independent Indian Ocean island nation' },
+            ],
+            isIslandUnit
+              ? `${uLabelBn} বঙ্গোপসাগর বা মেঘনা মোহনার একটি দ্বীপাঞ্চল।`
+              : `${uLabelBn} মূলত মূল ভূখণ্ড বা স্থলসংযুক্ত এলাকা।`,
+            isIslandUnit
+              ? `${uLabelEn} is an island territory.`
+              : `${uLabelEn} is on the contiguous mainland.`
+          )
+        );
+
+        // 7. Direct Area & Population Comparisons (Strictly about u vs peer pool, with full upazilas fallback)
+        const sameDistSiblings = distUpazilas.filter((du) => du.id !== u.id);
         const uNbrSet = new Set(u.neighbors);
         const uNbrs = u.neighbors
           .map((uid) => upazilaMap.get(uid))
@@ -1756,80 +2531,126 @@ export function generateQuizQuestions(
         const localPeerPool = Array.from(
           new Map([...sameDistSiblings, ...uNbrs].map((x) => [x.id, x])).values()
         );
-        const clearlyLarger = localPeerPool.filter((p) => p.areaKm2 - u.areaKm2 >= 25);
-        const clearlySmaller = localPeerPool.filter((p) => u.areaKm2 - p.areaKm2 >= 25);
+        const orderedPeerPool = Array.from(
+          new Map([...localPeerPool, ...shuffleArray(upazilas)].map((x) => [x.id, x])).values()
+        ).filter((p) => p.id !== u.id);
 
-        if (clearlyLarger.length >= 1 && clearlySmaller.length >= 3) {
-          const pickedLarge = shuffleArray(clearlyLarger)[0];
-          pushQ(
-            buildQuestion(
-              nextId('u-larger'),
-              1,
-              'geography_borders',
-              `নিচের কোন উপজেলাটি আয়তনে ${uLabelBn}-এর চেয়ে বড়?`,
-              `Which of the following upazilas is larger in area than ${uLabelEn}?`,
-              { bn: pickedLarge.bnName, en: pickedLarge.name },
-              clearlySmaller.map((s) => ({ bn: s.bnName, en: s.name })),
-              `${pickedLarge.bnName}-এর আয়তন প্রায় ${formatNum(pickedLarge.areaKm2, 'bn')} বর্গ কিমি, যা ${u.bnName} (${formatNum(u.areaKm2, 'bn')} বর্গ কিমি)-এর চেয়ে বড়।`,
-              `${pickedLarge.name} (~${pickedLarge.areaKm2} km²) is larger than ${u.name} (~${u.areaKm2} km²).`
-            )
-          );
+        const clearlyLarger = orderedPeerPool.filter((p) => p.areaKm2 - u.areaKm2 >= 25);
+        const clearlySmaller = orderedPeerPool.filter((p) => u.areaKm2 - p.areaKm2 >= 25);
+
+        const largerPromptsBn = [
+          `নিচের কোন উপজেলা/থানাটি আয়তনে ${uLabelBn}-এর চেয়ে বড়?`,
+          `আয়তন বিচারে নিচের কোন এলাকার চেয়ে ${uLabelBn} ছোট?`,
+          `ভূখণ্ডের বিস্তৃতিতে ${uLabelBn}-এর চেয়ে প্রশস্ত এলাকা কোনটি?`,
+        ];
+        const largerPromptsEn = [
+          `Which of the following units is larger in land area than ${uLabelEn}?`,
+          `In land area, ${uLabelEn} is smaller than which of these units?`,
+          `Which upazila or thana covers more area than ${uLabelEn}?`,
+        ];
+        if (clearlySmaller.length >= 3) {
+          clearlyLarger.slice(0, 3).forEach((pickedLarge, idx) => {
+            pushQ(
+              buildQuestion(
+                nextId('u-larger'),
+                1,
+                'geography_borders',
+                largerPromptsBn[idx],
+                largerPromptsEn[idx],
+                { bn: pickedLarge.bnName, en: pickedLarge.name },
+                clearlySmaller.map((s) => ({ bn: s.bnName, en: s.name })),
+                `${pickedLarge.bnName}-এর আয়তন প্রায় ${formatNum(pickedLarge.areaKm2, 'bn')} বর্গ কিমি, যা ${u.bnName} (${formatNum(u.areaKm2, 'bn')} বর্গ কিমি)-এর চেয়ে বড়।`,
+                `${pickedLarge.name} (~${pickedLarge.areaKm2} km²) is larger than ${u.name} (~${u.areaKm2} km²).`
+              )
+            );
+          });
         }
 
-        if (clearlySmaller.length >= 1 && clearlyLarger.length >= 3) {
-          const pickedSmall = shuffleArray(clearlySmaller)[0];
-          pushQ(
-            buildQuestion(
-              nextId('u-smaller'),
-              1,
-              'geography_borders',
-              `নিচের কোন উপজেলাটি আয়তনে ${uLabelBn}-এর চেয়ে ছোট?`,
-              `Which of the following upazilas is smaller in area than ${uLabelEn}?`,
-              { bn: pickedSmall.bnName, en: pickedSmall.name },
-              clearlyLarger.map((l) => ({ bn: l.bnName, en: l.name })),
-              `${pickedSmall.bnName}-এর আয়তন প্রায় ${formatNum(pickedSmall.areaKm2, 'bn')} বর্গ কিমি, যা ${u.bnName} (${formatNum(u.areaKm2, 'bn')} বর্গ কিমি)-এর চেয়ে ছোট।`,
-              `${pickedSmall.name} (~${pickedSmall.areaKm2} km²) is smaller than ${u.name} (~${u.areaKm2} km²).`
-            )
-          );
+        const smallerPromptsBn = [
+          `নিচের কোন উপজেলা/থানাটি আয়তনে ${uLabelBn}-এর চেয়ে ছোট?`,
+          `আয়তন বিচারে ${uLabelBn}-এর তুলনায় ক্ষুদ্রতর এলাকা নিচের কোনটি?`,
+          `ভূখণ্ডের আয়তনে ${uLabelBn}-এর চেয়ে সংকুচিত উপজেলা/থানা কোনটি?`,
+        ];
+        const smallerPromptsEn = [
+          `Which of the following units is smaller in land area than ${uLabelEn}?`,
+          `In land area, which unit is smaller compared to ${uLabelEn}?`,
+          `Which upazila or thana spans less territory than ${uLabelEn}?`,
+        ];
+        if (clearlyLarger.length >= 3) {
+          clearlySmaller.slice(0, 3).forEach((pickedSmall, idx) => {
+            pushQ(
+              buildQuestion(
+                nextId('u-smaller'),
+                1,
+                'geography_borders',
+                smallerPromptsBn[idx],
+                smallerPromptsEn[idx],
+                { bn: pickedSmall.bnName, en: pickedSmall.name },
+                clearlyLarger.map((l) => ({ bn: l.bnName, en: l.name })),
+                `${pickedSmall.bnName}-এর আয়তন প্রায় ${formatNum(pickedSmall.areaKm2, 'bn')} বর্গ কিমি, যা ${u.bnName} (${formatNum(u.areaKm2, 'bn')} বর্গ কিমি)-এর চেয়ে ছোট।`,
+                `${pickedSmall.name} (~${pickedSmall.areaKm2} km²) is smaller than ${u.name} (~${u.areaKm2} km²).`
+              )
+            );
+          });
         }
 
-        // 7B. Direct Population comparisons against sibling/neighbor upazilas
-        const clearlyMorePop = localPeerPool.filter((p) => (p.population || 0) - uPop >= 35000);
-        const clearlyLessPop = localPeerPool.filter((p) => uPop - (p.population || 0) >= 35000);
-        if (clearlyMorePop.length >= 1 && clearlyLessPop.length >= 3) {
-          const pickedMore = shuffleArray(clearlyMorePop)[0];
-          pushQ(
-            buildQuestion(
-              nextId('u-pop-more'),
-              1,
-              'heritage_facts',
-              `নিচের কোন উপজেলা/থানার জনসংখ্যা ${uLabelBn}-এর চেয়ে বেশি?`,
-              `Which of these neighboring/sibling units has a larger population than ${uLabelEn}?`,
-              { bn: pickedMore.bnName, en: pickedMore.name },
-              clearlyLessPop.map((s) => ({ bn: s.bnName, en: s.name })),
-              `${pickedMore.bnName}-এর জনসংখ্যা প্রায় ${formatNum(pickedMore.population || 0, 'bn')} জন, যা ${u.bnName} (~${formatNum(uPop, 'bn')})-এর চেয়ে বেশি।`,
-              `${pickedMore.name} (~${(pickedMore.population || 0).toLocaleString()}) has more residents than ${u.name} (~${uPop.toLocaleString()}).`
-            )
-          );
-        }
-        if (clearlyLessPop.length >= 1 && clearlyMorePop.length >= 3) {
-          const pickedLess = shuffleArray(clearlyLessPop)[0];
-          pushQ(
-            buildQuestion(
-              nextId('u-pop-less'),
-              1,
-              'heritage_facts',
-              `নিচের কোন উপজেলা/থানার জনসংখ্যা ${uLabelBn}-এর চেয়ে কম?`,
-              `Which of these neighboring/sibling units has a smaller population than ${uLabelEn}?`,
-              { bn: pickedLess.bnName, en: pickedLess.name },
-              clearlyMorePop.map((l) => ({ bn: l.bnName, en: l.name })),
-              `${pickedLess.bnName}-এর জনসংখ্যা প্রায় ${formatNum(pickedLess.population || 0, 'bn')} জন, যা ${u.bnName} (~${formatNum(uPop, 'bn')})-এর চেয়ে কম।`,
-              `${pickedLess.name} (~${(pickedLess.population || 0).toLocaleString()}) has fewer residents than ${u.name} (~${uPop.toLocaleString()}).`
-            )
-          );
+        const clearlyMorePop = orderedPeerPool.filter((p) => (p.population || 0) - uPop >= 35000);
+        const clearlyLessPop = orderedPeerPool.filter(
+          (p) => (p.population || 0) > 0 && uPop - (p.population || 0) >= 35000
+        );
+        const morePopPromptsBn = [
+          `নিচের কোন উপজেলা/থানার জনসংখ্যা ${uLabelBn}-এর চেয়ে বেশি?`,
+          `২০২২ সালের জনশুমারিতে ${uLabelBn}-এর তুলনায় অধিক জনবহুল এলাকা কোনটি?`,
+        ];
+        const morePopPromptsEn = [
+          `Which of these units has a larger population than ${uLabelEn}?`,
+          `In the 2022 census, which area had more residents than ${uLabelEn}?`,
+        ];
+        if (uPop > 0 && clearlyLessPop.length >= 3) {
+          clearlyMorePop.slice(0, 2).forEach((pickedMore, idx) => {
+            pushQ(
+              buildQuestion(
+                nextId('u-pop-more'),
+                1,
+                'heritage_facts',
+                morePopPromptsBn[idx],
+                morePopPromptsEn[idx],
+                { bn: pickedMore.bnName, en: pickedMore.name },
+                clearlyLessPop.map((s) => ({ bn: s.bnName, en: s.name })),
+                `${pickedMore.bnName}-এর জনসংখ্যা প্রায় ${formatNum(pickedMore.population || 0, 'bn')} জন, যা ${u.bnName} (~${formatNum(uPop, 'bn')})-এর চেয়ে বেশি।`,
+                `${pickedMore.name} (~${(pickedMore.population || 0).toLocaleString()}) has more residents than ${u.name} (~${uPop.toLocaleString()}).`
+              )
+            );
+          });
         }
 
-        // 8. Neighbor count
+        const lessPopPromptsBn = [
+          `নিচের কোন উপজেলা/থানার জনসংখ্যা ${uLabelBn}-এর চেয়ে কম?`,
+          `জনসংখ্যায় ${uLabelBn}-এর তুলনায় ছোট উপজেলা/থানা নিচের কোনটি?`,
+        ];
+        const lessPopPromptsEn = [
+          `Which of these units has a smaller population than ${uLabelEn}?`,
+          `Which upazila or thana has fewer residents than ${uLabelEn}?`,
+        ];
+        if (uPop > 0 && clearlyMorePop.length >= 3) {
+          clearlyLessPop.slice(0, 2).forEach((pickedLess, idx) => {
+            pushQ(
+              buildQuestion(
+                nextId('u-pop-less'),
+                1,
+                'heritage_facts',
+                lessPopPromptsBn[idx],
+                lessPopPromptsEn[idx],
+                { bn: pickedLess.bnName, en: pickedLess.name },
+                clearlyMorePop.map((l) => ({ bn: l.bnName, en: l.name })),
+                `${pickedLess.bnName}-এর জনসংখ্যা প্রায় ${formatNum(pickedLess.population || 0, 'bn')} জন, যা ${u.bnName} (~${formatNum(uPop, 'bn')})-এর চেয়ে কম।`,
+                `${pickedLess.name} (~${(pickedLess.population || 0).toLocaleString()}) has fewer residents than ${u.name} (~${uPop.toLocaleString()}).`
+              )
+            );
+          });
+        }
+
+        // 8. Direct Neighbor Count & Cross-District/Cross-Division Border Check of u
         pushQ(
           buildQuestion(
             nextId('u-nbrcnt'),
@@ -1846,7 +2667,71 @@ export function generateQuizQuestions(
           )
         );
 
-        // 9. Bordering upazilas (up to 3 varied distinct questions)
+        const crossDistNbrs = uNbrs.filter((x) => x.districtId !== u.districtId);
+        const extDistIds = Array.from(new Set(crossDistNbrs.map((x) => x.districtId)));
+
+        pushQ(
+          buildQuestion(
+            nextId('u-ext-dcnt'),
+            1,
+            'geography_borders',
+            `নিজ জেলা (${parentDist.bnName}) ছাড়া ${uLabelBn}-এর সীমান্ত অন্য কয়টি জেলাকে স্পর্শ করেছে?`,
+            `Apart from ${parentDist.name} District, how many other districts border ${uLabelEn}?`,
+            extDistIds.length === 0
+              ? { bn: '০টি (অন্য কোনো জেলার সাথে সীমান্ত নেই)', en: '0 (no external district borders)' }
+              : { bn: `${formatNum(extDistIds.length, 'bn')}টি জেলা`, en: `${extDistIds.length} district(s)` },
+            [
+              ...(extDistIds.length > 0
+                ? [{ bn: '০টি (অন্য কোনো জেলার সাথে সীমান্ত নেই)', en: '0 (no external district borders)' }]
+                : []),
+              ...[1, 2, 3, 4, 5]
+                .filter((n) => n !== extDistIds.length)
+                .map((n) => ({ bn: `${formatNum(n, 'bn')}টি জেলা`, en: `${n} district(s)` })),
+            ],
+            extDistIds.length === 0
+              ? `${uLabelBn}-এর সীমান্ত নিজ জেলা ${parentDist.bnName}-এর বাইরের কোনো জেলাকে স্পর্শ করেনি।`
+              : `${uLabelBn} নিজ জেলা ছাড়াও ${formatNum(extDistIds.length, 'bn')}টি ভিন্ন জেলার (${extDistIds
+                  .map((id) => distMap.get(id)?.bnName || '')
+                  .join(', ')}) সাথে সীমান্ত স্পর্শ করেছে।`,
+            extDistIds.length === 0
+              ? `${uLabelEn} does not border any external district outside ${parentDist.name}.`
+              : `${uLabelEn} touches ${extDistIds.length} external district(s) (${extDistIds
+                  .map((id) => distMap.get(id)?.name || '')
+                  .join(', ')}).`
+          )
+        );
+
+        const crossDivIds = Array.from(
+          new Set(uNbrs.filter((x) => x.divisionId !== u.divisionId).map((x) => x.divisionId))
+        );
+        pushQ(
+          buildQuestion(
+            nextId('u-cross-div-chk'),
+            1,
+            'geography_borders',
+            `${uLabelBn}-এর সীমান্ত নিজ বিভাগ (${parentDiv.bnName}) ছাড়া ভিন্ন কয়টি বিভাগকে স্পর্শ করেছে?`,
+            `How many external divisions outside ${parentDiv.name} does ${uLabelEn} directly border?`,
+            crossDivIds.length === 0
+              ? { bn: '০টি (কোনো ভিন্ন বিভাগের সাথে সীমান্ত নেই)', en: '0 (none outside own division)' }
+              : { bn: `${formatNum(crossDivIds.length, 'bn')}টি ভিন্ন বিভাগ`, en: `${crossDivIds.length} external division(s)` },
+            [
+              ...(crossDivIds.length > 0
+                ? [{ bn: '০টি (কোনো ভিন্ন বিভাগের সাথে সীমান্ত নেই)', en: '0 (none outside own division)' }]
+                : []),
+              ...[1, 2, 3, 4]
+                .filter((n) => n !== crossDivIds.length)
+                .map((n) => ({ bn: `${formatNum(n, 'bn')}টি ভিন্ন বিভাগ`, en: `${n} external division(s)` })),
+            ],
+            crossDivIds.length === 0
+              ? `${uLabelBn}-এর সীমান্ত ${parentDiv.bnName} বিভাগের বাইরের কোনো বিভাগকে স্পর্শ করেনি।`
+              : `${uLabelBn} নিজ বিভাগ ${parentDiv.bnName} ছাড়াও ${formatNum(crossDivIds.length, 'bn')}টি ভিন্ন বিভাগের সীমানা স্পর্শ করেছে।`,
+            crossDivIds.length === 0
+              ? `${uLabelEn} does not touch any division outside ${parentDiv.name}.`
+              : `${uLabelEn} borders ${crossDivIds.length} external division(s) outside ${parentDiv.name}.`
+          )
+        );
+
+        // 9. Direct Bordering & Non-Bordering Upazilas + Directional Neighbors of u
         const nonUNbrs = upazilas.filter((ou) => ou.id !== u.id && !uNbrSet.has(ou.id));
         const nearbyNonNbrs = distUpazilas.filter((du) => du.id !== u.id && !uNbrSet.has(du.id));
         const distractorPool = nearbyNonNbrs.length >= 3 ? [...nearbyNonNbrs, ...nonUNbrs] : nonUNbrs;
@@ -1854,14 +2739,16 @@ export function generateQuizQuestions(
           `নিচের কোনটি ${uLabelBn}-এর সরাসরি সীমান্তবর্তী (পার্শ্ববর্তী)?`,
           `মানচিত্রে ${uLabelBn}-এর সীমান্তের সাথে সরাসরি যুক্ত এলাকা কোনটি?`,
           `${uLabelBn}-এর স্থলসীমান্ত স্পর্শ করেছে নিচের কোন উপজেলা বা থানা?`,
+          `নিচের কোন প্রশাসনিক ইউনিটের সাথে ${uLabelBn}-এর সরাসরি সীমানা রয়েছে?`,
         ];
         const nbrPromptsEn = [
           `Which of the following directly borders ${uLabelEn}?`,
           `On the map, which adjacent unit shares a direct border with ${uLabelEn}?`,
           `Which upazila or thana touches the boundary of ${uLabelEn}?`,
+          `Which neighboring administrative unit shares a boundary line with ${uLabelEn}?`,
         ];
         shuffleArray(uNbrs)
-          .slice(0, 3)
+          .slice(0, 4)
           .forEach((nu, idx) => {
             pushQ(
               buildQuestion(
@@ -1877,6 +2764,35 @@ export function generateQuizQuestions(
               )
             );
           });
+
+        if (uNbrs.length > 0 && nonUNbrs.length >= 3) {
+          const northNbr = [...uNbrs].filter((nu) => nu.cy < u.cy - 2).sort((a, b) => a.cy - b.cy)[0];
+          const southNbr = [...uNbrs].filter((nu) => nu.cy > u.cy + 2).sort((a, b) => b.cy - a.cy)[0];
+          const eastNbr = [...uNbrs].filter((nu) => nu.cx > u.cx + 2).sort((a, b) => b.cx - a.cx)[0];
+          const westNbr = [...uNbrs].filter((nu) => nu.cx < u.cx - 2).sort((a, b) => a.cx - b.cx)[0];
+          const dirPairs: { nbr: GeoUpazila | undefined; dirBn: string; dirEn: string; tag: string }[] = [
+            { nbr: northNbr, dirBn: 'উত্তর', dirEn: 'northern', tag: 'u-dir-n' },
+            { nbr: southNbr, dirBn: 'দক্ষিণ', dirEn: 'southern', tag: 'u-dir-s' },
+            { nbr: eastNbr, dirBn: 'পূর্ব', dirEn: 'eastern', tag: 'u-dir-e' },
+            { nbr: westNbr, dirBn: 'পশ্চিম', dirEn: 'western', tag: 'u-dir-w' },
+          ];
+          for (const dp of dirPairs) {
+            if (!dp.nbr) continue;
+            pushQ(
+              buildQuestion(
+                nextId(dp.tag),
+                1,
+                'geography_borders',
+                `${uLabelBn}-এর সরাসরি ${dp.dirBn} সীমান্তবর্তী এলাকা নিচের কোনটি?`,
+                `Which neighboring unit borders ${uLabelEn} on its ${dp.dirEn} side?`,
+                { bn: dp.nbr.bnName, en: dp.nbr.name },
+                distractorPool.map((ou) => ({ bn: ou.bnName, en: ou.name })),
+                `মানচিত্রে ${dp.nbr.bnName} ${uLabelBn}-এর ${dp.dirBn} সীমান্তে অবস্থিত।`,
+                `On the map, ${dp.nbr.name} borders ${uLabelEn} to the ${dp.dirEn === 'northern' ? 'north' : dp.dirEn === 'southern' ? 'south' : dp.dirEn === 'eastern' ? 'east' : 'west'}.`
+              )
+            );
+          }
+        }
 
         if (uNbrs.length >= 3) {
           const nonNbrPool = nearbyNonNbrs.length >= 2 ? nearbyNonNbrs : [...nearbyNonNbrs, ...nonUNbrs];
@@ -1903,95 +2819,34 @@ export function generateQuizQuestions(
             });
         }
 
-        // 10. Cross-district neighbor & external bordering districts
-        const crossDistNbrs = uNbrs.filter((x) => x.districtId !== u.districtId);
-        const extDistIds = Array.from(new Set(crossDistNbrs.map((x) => x.districtId)));
-
+        // 10. External Districts Directly Bordered by u (strictly about u's own borders)
         if (extDistIds.length > 0) {
-          pushQ(
-            buildQuestion(
-              nextId('u-ext-dcnt'),
-              1,
-              'geography_borders',
-              `নিজ জেলা (${parentDist.bnName}) ছাড়া ${uLabelBn}-এর সীমান্ত অন্য কয়টি জেলাকে স্পর্শ করেছে?`,
-              `Apart from ${parentDist.name} District, how many other districts border ${uLabelEn}?`,
-              { bn: `${formatNum(extDistIds.length, 'bn')}টি জেলা`, en: `${extDistIds.length} district(s)` },
-              [0, 1, 2, 3, 4, 5]
-                .filter((n) => n !== extDistIds.length)
-                .map((n) => ({ bn: `${formatNum(n, 'bn')}টি জেলা`, en: `${n} district(s)` })),
-              `${uLabelBn} নিজ জেলা ছাড়াও ${formatNum(extDistIds.length, 'bn')}টি ভিন্ন জেলার (${extDistIds
-                .map((id) => distMap.get(id)?.bnName || '')
-                .join(', ')}) সাথে সীমান্ত স্পর্শ করেছে।`,
-              `${uLabelEn} touches ${extDistIds.length} external district(s) (${extDistIds
-                .map((id) => distMap.get(id)?.name || '')
-                .join(', ')}).`
-            )
-          );
-
           const extDistSet = new Set([parentDist.id, ...extDistIds]);
           const nonBorderDists = districts.filter((d) => !extDistSet.has(d.id));
-          for (const edId of extDistIds.slice(0, 2)) {
+          extDistIds.slice(0, 2).forEach((edId, idx) => {
             const ed = distMap.get(edId);
-            if (!ed) continue;
+            if (!ed) return;
             pushQ(
               buildQuestion(
                 nextId('u-ext-d'),
                 1,
                 'geography_borders',
-                `${parentDist.bnName} জেলা ছাড়াও নিচের কোন ভিন্ন জেলার সাথে ${uLabelBn}-এর সরাসরি সীমান্ত রয়েছে?`,
-                `Which external district directly touches ${uLabelEn}?`,
+                idx === 0
+                  ? `${parentDist.bnName} জেলা ছাড়াও নিচের কোন ভিন্ন জেলার সাথে ${uLabelBn}-এর সরাসরি সীমান্ত রয়েছে?`
+                  : `নিজ জেলা (${parentDist.bnName})-এর বাইরে ${uLabelBn}-এর সীমা নিচের কোন জেলাকে স্পর্শ করেছে?`,
+                idx === 0
+                  ? `Which external district directly touches ${uLabelEn}?`
+                  : `Outside ${parentDist.name}, which district shares a direct boundary with ${uLabelEn}?`,
                 { bn: `${ed.bnName} জেলা`, en: `${ed.name} District` },
                 nonBorderDists.map((d) => ({ bn: `${d.bnName} জেলা`, en: `${d.name} District` })),
                 `${u.bnName} সীমান্তে ${ed.bnName} জেলার সাথে যুক্ত।`,
                 `${u.name} directly borders ${ed.name} District.`
               )
             );
-          }
+          });
         }
 
-        for (const nu of shuffleArray(crossDistNbrs).slice(0, 3)) {
-          const nuDist = distMap.get(nu.districtId);
-          if (!nuDist) continue;
-          pushQ(
-            buildQuestion(
-              nextId('u-cross-nbr'),
-              1,
-              'geography_borders',
-              `${u.bnName}-এর পার্শ্ববর্তী ${nu.bnName} ভিন্ন কোন জেলার অন্তর্ভুক্ত?`,
-              `${u.name}'s bordering neighbor ${nu.name} belongs to which district?`,
-              { bn: `${nuDist.bnName} জেলা`, en: `${nuDist.name} District` },
-              districts
-                .filter((d) => d.id !== nuDist.id)
-                .map((d) => ({ bn: `${d.bnName} জেলা`, en: `${d.name} District` })),
-              `${nu.bnName} ${nuDist.bnName} জেলার অন্তর্ভুক্ত হয়েও ${u.bnName}-এর সাথে সীমান্ত ভাগ করেছে।`,
-              `${nu.name} belongs to ${nuDist.name} District and borders ${u.name}.`
-            )
-          );
-        }
-
-        const crossDivNbr = crossDistNbrs.find((x) => x.divisionId !== u.divisionId);
-        if (crossDivNbr) {
-          const xDiv = divMap.get(crossDivNbr.divisionId);
-          if (xDiv) {
-            pushQ(
-              buildQuestion(
-                nextId('u-cross-div'),
-                1,
-                'geography_borders',
-                `${uLabelBn}-এর সীমান্তবর্তী ‘${crossDivNbr.bnName}’ নিচের কোন ভিন্ন বিভাগের অন্তর্গত?`,
-                `${uLabelEn}'s neighbor ${crossDivNbr.name} lies in which other division?`,
-                { bn: `${xDiv.bnName} বিভাগ`, en: `${xDiv.name} Division` },
-                divisions
-                  .filter((d) => d.id !== xDiv.id)
-                  .map((d) => ({ bn: `${d.bnName} বিভাগ`, en: `${d.name} Division` })),
-                `${crossDivNbr.bnName} (${xDiv.bnName} বিভাগ) ${u.bnName}-এর সাথে সরাসরি সীমান্ত সংলগ্ন।`,
-                `${crossDivNbr.name} belongs to ${xDiv.name} Division and borders ${u.name}.`
-              )
-            );
-          }
-        }
-
-        // 11. Curated Landmarks & Heritage (ONLY if curated, and never leaking u.bnName in option!)
+        // 11. Curated Landmarks & Heritage strictly of u (never leaking u.bnName in option!)
         const foreignLms: OptionPair[] = [];
         for (const od of shuffleArray(districts.filter((d) => d.id !== parentDist.id)).slice(0, 14)) {
           const odet = DISTRICT_DETAILS[od.id];
@@ -2002,6 +2857,17 @@ export function generateQuizQuestions(
         }
 
         if (hasCuratedUpazilaDetail(u.id)) {
+          const lmPromptsBn = [
+            `${uLabelBn}-এ নিচের কোন উল্লেখযোগ্য স্থান বা ঐতিহ্যটি অবস্থিত?`,
+            `ঐতিহাসিক ও দর্শনীয় স্থান হিসেবে ${uLabelBn}-এর অন্তর্গত কোনটি?`,
+            `নিচের কোন বিখ্যাত স্থাপনা বা স্থানটি সরাসরি ${uLabelBn}-এ অবস্থিত?`,
+          ];
+          const lmPromptsEn = [
+            `Which notable landmark or heritage site is located in ${uLabelEn}?`,
+            `Which landmark belongs specifically to ${uLabelEn}?`,
+            `Which famous site is situated directly inside ${uLabelEn}?`,
+          ];
+          let lmIdx = 0;
           for (let i = 0; i < uDetail.landmarksBn.length; i++) {
             const lmBn = uDetail.landmarksBn[i];
             const lmEn = uDetail.landmarksEn[i];
@@ -2014,14 +2880,16 @@ export function generateQuizQuestions(
                 nextId('u-cur-lm'),
                 1,
                 'heritage_facts',
-                `${uLabelBn}-এর নিচের কোন উল্লেখযোগ্য স্থান বা ঐতিহ্যটি অবস্থিত?`,
-                `Which notable landmark or heritage site is located in ${uLabelEn}?`,
+                lmPromptsBn[lmIdx % lmPromptsBn.length],
+                lmPromptsEn[lmIdx % lmPromptsEn.length],
                 { bn: lmBn, en: lmEn },
                 foreignLms,
                 `‘${lmBn}’ ${uLabelBn}-এর অন্যতম উল্লেখযোগ্য ঐতিহ্য।`,
                 `${lmEn} is a famous landmark in ${uLabelEn}.`
               )
             );
+            lmIdx += 1;
+            if (lmIdx >= 3) break;
           }
 
           pushQ(
@@ -2080,160 +2948,161 @@ export function generateQuizQuestions(
               `${uLabelEn} connectivity: ${uDetail.connectivityEn}.`
             )
           );
-        } else {
-          // Non-curated upazila: ask honest, verified geographical & factual questions strictly about u
-          const terrainBn = uDetail.isUrbanThana
-            ? 'মহানগর থানা এলাকা'
-            : uDetail.isHill
-            ? 'পার্বত্য ও পাহাড়ি অঞ্চল'
-            : uDetail.isHaor
-            ? 'হাওর ও বিল বেষ্টিত অঞ্চল'
-            : uDetail.isCoastal
-            ? 'উপকূলীয় ব-দ্বীপ অঞ্চল'
-            : 'নদীবিধৌত সমভূমি ও কৃষি অঞ্চল';
-          const terrainEn = uDetail.isUrbanThana
-            ? 'Metropolitan urban thana'
-            : uDetail.isHill
-            ? 'Hill-tract forested region'
-            : uDetail.isHaor
-            ? 'Seasonal haor wetland basin'
-            : uDetail.isCoastal
-            ? 'Coastal deltaic estuary zone'
-            : 'Riverine alluvial plain & agricultural zone';
-          const terrainOptions: OptionPair[] = [
-            { bn: 'মহানগর থানা এলাকা', en: 'Metropolitan urban thana' },
-            { bn: 'পার্বত্য ও পাহাড়ি অঞ্চল', en: 'Hill-tract forested region' },
-            { bn: 'হাওর ও বিল বেষ্টিত অঞ্চল', en: 'Seasonal haor wetland basin' },
-            { bn: 'উপকূলীয় ব-দ্বীপ অঞ্চল', en: 'Coastal deltaic estuary zone' },
-            { bn: 'নদীবিধৌত সমভূমি ও কৃষি অঞ্চল', en: 'Riverine alluvial plain & agricultural zone' },
-          ].filter((o) => o.en !== terrainEn);
-          pushQ(
-            buildQuestion(
-              nextId('u-terrain'),
-              1,
-              'heritage_facts',
-              `ভৌগোলিক ও প্রাকৃতিক বৈশিষ্ট্যের দিক থেকে ${uLabelBn} কোন ধরনের অঞ্চল?`,
-              `How is ${uLabelEn} classified geographically?`,
-              { bn: terrainBn, en: terrainEn },
-              terrainOptions,
-              `${uLabelBn} (${parentDist.bnName} জেলা) একটি ${terrainBn}।`,
-              `${uLabelEn} (${parentDist.name} District) is a ${terrainEn.toLowerCase()}.`
-            )
-          );
-
-          pushQ(
-            buildQuestion(
-              nextId('u-admin-unit'),
-              1,
-              'heritage_facts',
-              `প্রশাসনিক কাঠামো অনুযায়ী ${u.bnName} নিচের কোন ধরনের এলাকা?`,
-              `Administratively, what type of local unit is ${u.name}?`,
-              uDetail.isUrbanThana
-                ? { bn: 'মহানগর থানা এলাকা', en: 'Metropolitan City Thana' }
-                : { bn: 'উপজেলা প্রশাসনিক এলাকা', en: 'Upazila Administrative Unit' },
-              [
-                uDetail.isUrbanThana
-                  ? { bn: 'উপজেলা প্রশাসনিক এলাকা', en: 'Upazila Administrative Unit' }
-                  : { bn: 'মহানগর থানা এলাকা', en: 'Metropolitan City Thana' },
-                { bn: 'বিভাগীয় সদর দপ্তর', en: 'Divisional Headquarters Only' },
-                { bn: 'স্বতন্ত্র জেলা', en: 'Independent District' },
-              ],
-              `${u.bnName} ${parentDist.bnName} জেলার একটি ${uDetail.isUrbanThana ? 'মহানগর থানা' : 'উপজেলা'}।`,
-              `${u.name} is a ${uDetail.isUrbanThana ? 'metropolitan thana' : 'upazila'} under ${parentDist.name} District.`
-            )
-          );
         }
 
-        // 12. Rivers flowing directly through Upazila u (and upazila river neighbors!)
+        // 12. Rivers flowing directly through Upazila u ONLY (never neighbor rivers or detached river trivia)
+        pushQ(
+          buildQuestion(
+            nextId('u-riv-cnt'),
+            1,
+            'rivers',
+            `মানচিত্রের তালিকাভুক্ত ৩০টি প্রধান নদ-নদীর কতটি সরাসরি ${uLabelBn} অতিক্রম করেছে?`,
+            `How many of the 30 mapped major rivers directly pass through ${uLabelEn}?`,
+            uRivers.length === 0
+              ? { bn: '০টি (আঞ্চলিক নদী বা খাল প্রবাহিত)', en: '0 (local tributaries only)' }
+              : { bn: `${formatNum(uRivers.length, 'bn')}টি প্রধান নদী`, en: `${uRivers.length} major river(s)` },
+            [
+              ...(uRivers.length > 0
+                ? [{ bn: '০টি (আঞ্চলিক নদী বা খাল প্রবাহিত)', en: '0 (local tributaries only)' }]
+                : []),
+              ...[1, 2, 3, 4, 5]
+                .filter((n) => n !== uRivers.length)
+                .map((n) => ({ bn: `${formatNum(n, 'bn')}টি প্রধান নদী`, en: `${n} major river(s)` })),
+            ],
+            uRivers.length === 0
+              ? `${uLabelBn}-এর মধ্য দিয়ে তালিকাভুক্ত ৩০টি প্রধান নদ-নদীর কোনোটি সরাসরি অতিক্রম করেনি।`
+              : `${uLabelBn}-এর ওপর দিয়ে ${formatNum(uRivers.length, 'bn')}টি প্রধান নদী প্রবাহিত হয়েছে।`,
+            uRivers.length === 0
+              ? `None of the 30 mapped major rivers directly intersect ${uLabelEn}.`
+              : `${uRivers.length} mapped major river(s) directly cross ${uLabelEn}.`
+          )
+        );
+
         if (uRivers.length > 0) {
           const foreignRivers = rivers.filter((r) => !u.rivers.includes(r.id));
-          for (const r of uRivers) {
+          const uRivPromptsBn = [
+            `প্রধান ৩০টি নদ-নদীর মধ্যে নিচের কোন নদীটি সরাসরি ${uLabelBn}-এর ওপর দিয়ে প্রবাহিত?`,
+            `মানচিত্র অনুযায়ী ${uLabelBn}-এর ভূখণ্ড অতিক্রম করেছে নিচের কোন প্রধান নদী?`,
+            `${uLabelBn}-এর নদী ব্যবস্থার সাথে সরাসরি যুক্ত প্রধান নদী নিচের কোনটি?`,
+          ];
+          const uRivPromptsEn = [
+            `Which of the 30 major rivers flows directly through ${uLabelEn}?`,
+            `Which major river directly crosses ${uLabelEn} on the map?`,
+            `Which of these mapped rivers runs through ${uLabelEn}?`,
+          ];
+          uRivers.slice(0, 3).forEach((r, idx) => {
             pushQ(
               buildQuestion(
                 nextId('u-riv'),
                 1,
                 'rivers',
-                `প্রধান ৩০টি নদ-নদীর মধ্যে নিচের কোন নদীটি সরাসরি ${uLabelBn}-এর ওপর দিয়ে প্রবাহিত?`,
-                `Which of the 30 major rivers flows directly through ${uLabelEn}?`,
+                uRivPromptsBn[idx],
+                uRivPromptsEn[idx],
                 { bn: `${r.bnName} নদী`, en: `${r.name} River` },
                 foreignRivers.map((fr) => ({ bn: `${fr.bnName} নদী`, en: `${fr.name} River` })),
-                `${r.bnName} নদী ${uLabelBn}-এর মধ্য দিয়ে প্রবাহিত হয়েছে।`,
+                `${r.bnName} নদী সরাসরি ${uLabelBn}-এর মধ্য দিয়ে প্রবাহিত হয়েছে।`,
                 `The ${r.name} River flows directly through ${uLabelEn}.`
               )
             );
+          });
 
-            // Neighbor sharing the same river
-            const nbrSharingRiver = uNbrs.filter((nu) => nu.rivers.includes(r.id));
-            const nonRiverNbrs = upazilas.filter((ou) => ou.id !== u.id && !ou.rivers.includes(r.id));
-            if (nbrSharingRiver.length > 0 && nonRiverNbrs.length >= 3) {
-              const pickedSameRivNbr = shuffleArray(nbrSharingRiver)[0];
-              pushQ(
-                buildQuestion(
-                  nextId('u-riv-nbr'),
-                  1,
-                  'rivers',
-                  `${u.bnName}-এর মতোই পার্শ্ববর্তী নিচের কোন উপজেলার ওপর দিয়েও ${r.bnName} নদী প্রবাহিত হয়েছে?`,
-                  `Which neighbor of ${u.name} also has the ${r.name} River flowing through it?`,
-                  { bn: pickedSameRivNbr.bnName, en: pickedSameRivNbr.name },
-                  nonRiverNbrs.map((ou) => ({ bn: ou.bnName, en: ou.name })),
-                  `${r.bnName} নদী ${u.bnName} ও পার্শ্ববর্তী ${pickedSameRivNbr.bnName} উভয়ের ওপর দিয়েই প্রবাহিত।`,
-                  `The ${r.name} River flows through both ${u.name} and neighboring ${pickedSameRivNbr.name}.`
-                )
-              );
-            }
-
-            addRiverFacts(
-              r,
-              1,
-              true,
-              `${u.bnName}-এর ওপর দিয়ে প্রবাহিত`,
-              `Flowing through ${u.name},`
+          if (uRivers.length >= 3 && foreignRivers.length > 0) {
+            const pickedNonRiv = shuffleArray(foreignRivers)[0];
+            pushQ(
+              buildQuestion(
+                nextId('u-riv-not'),
+                1,
+                'rivers',
+                `নিচের কোন প্রধান নদীটি সরাসরি ${uLabelBn}-এর মধ্য দিয়ে প্রবাহিত হয়নি?`,
+                `Which of the following major rivers does NOT flow directly through ${uLabelEn}?`,
+                { bn: `${pickedNonRiv.bnName} নদী`, en: `${pickedNonRiv.name} River` },
+                uRivers.map((r) => ({ bn: `${r.bnName} নদী`, en: `${r.name} River` })),
+                `${pickedNonRiv.bnName} নদী ${uLabelBn}-এর মানচিত্রে সরাসরি প্রবাহিত নদীগুলোর অন্তর্ভুক্ত নয়।`,
+                `The ${pickedNonRiv.name} River does not directly pass through ${uLabelEn}.`
+              )
             );
           }
         } else {
+          // 0 mapped major rivers: extra strictly-direct questions about u's non-major river profile & district scale
           pushQ(
             buildQuestion(
-              nextId('u-riv0'),
+              nextId('u-riv-none'),
               1,
               'rivers',
-              `মানচিত্রের তালিকাভুক্ত ৩০টি প্রধান নদ-নদীর কতটি সরাসরি ${uLabelBn} অতিক্রম করেছে?`,
-              `How many of the 30 mapped major rivers directly pass through ${uLabelEn}?`,
-              { bn: `০টি (আঞ্চলিক নদী/খাল প্রবাহিত)`, en: `0 (served by local tributaries)` },
+              `নদ-নদী মানচিত্র অনুযায়ী ${uLabelBn} সম্পর্কে নিচের কোন তথ্যটি সঠিক?`,
+              `Which statement about ${uLabelEn} matches the 30-river hydrography map?`,
+              {
+                bn: `তালিকাভুক্ত ৩০টি প্রধান নদ-নদী সরাসরি ${u.bnName} স্পর্শ করেনি`,
+                en: `None of the 30 mapped major rivers directly cross ${u.name}`,
+              },
               [
-                { bn: `১টি`, en: `1` },
-                { bn: `২টি`, en: `2` },
-                { bn: `৩টি`, en: `3` },
+                { bn: `পদ্মা ও যমুনা উভয় নদীই ${u.bnName}-এ মিলিত হয়েছে`, en: `Both Padma and Jamuna converge inside ${u.name}` },
+                { bn: `সুরমা, কুশিয়ারা ও তিস্তা তিনটিই ${u.bnName}-এর মধ্য দিয়ে প্রবাহিত`, en: `Surma, Kushiyara, and Teesta all cross ${u.name}` },
+                { bn: `কর্ণফুলী ও সাংগু নদী ${u.bnName}-এ উৎপন্ন হয়েছে`, en: `Karnaphuli and Sangu originate inside ${u.name}` },
               ],
-              `${uLabelBn}-এর মধ্য দিয়ে তালিকাভুক্ত ৩০টি প্রধান নদ-নদীর কোনোটি সরাসরি অতিক্রম করেনি।`,
-              `None of the 30 mapped major rivers directly intersect ${uLabelEn}.`
+              `${uLabelBn}-এ প্রধান ৩০টি নদ-নদীর সরাসরি প্রবাহ নেই; স্থানীয় খাল ও উপনদী প্রবাহিত।`,
+              `None of the 30 mapped major rivers directly pass through ${uLabelEn}.`
             )
           );
-
-          // Check rivers in neighboring upazilas
-          const nbrWithRiver = uNbrs.find((nu) => nu.rivers.length > 0);
-          if (nbrWithRiver) {
-            const nr = riverMap.get(nbrWithRiver.rivers[0]);
-            if (nr) {
-              pushQ(
-                buildQuestion(
-                  nextId('u-nbr-riv'),
-                  1,
-                  'rivers',
-                  `${uLabelBn}-এর পার্শ্ববর্তী ${nbrWithRiver.bnName}-এর ওপর দিয়ে নিচের কোন প্রধান নদী প্রবাহিত?`,
-                  `Which major river flows through ${nbrWithRiver.name}, bordering ${uLabelEn}?`,
-                  { bn: `${nr.bnName} নদী`, en: `${nr.name} River` },
-                  rivers
-                    .filter((fr) => !nbrWithRiver.rivers.includes(fr.id))
-                    .map((fr) => ({ bn: `${fr.bnName} নদী`, en: `${fr.name} River` })),
-                  `${u.bnName}-এর পার্শ্ববর্তী ${nbrWithRiver.bnName}-এর মধ্য দিয়ে ${nr.bnName} নদী প্রবাহিত হয়েছে।`,
-                  `The ${nr.name} River flows through ${nbrWithRiver.name}, adjacent to ${u.name}.`
-                )
-              );
-            }
-          }
         }
 
-        // Strictly scoped to this Upazila: no parent-district landmarks or fallback leakage!
+        // 13. Additional strictly-about-u comparative & administrative questions to guarantee >= 30 for EVERY upazila
+        const divUpazilaList = upazilas.filter((ou) => ou.divisionId === parentDiv.id);
+        const divAreaSorted = [...divUpazilaList].sort((a, b) => b.areaKm2 - a.areaKm2);
+        const divAreaTierIdx = divAreaSorted.findIndex((x) => x.id === u.id);
+        const divAreaQuartile =
+          divAreaTierIdx < divAreaSorted.length * 0.25
+            ? { bn: `${parentDiv.bnName} বিভাগের শীর্ষ ২৫% বৃহৎ ইউনিটের একটি`, en: `Top 25% largest units in ${parentDiv.name} Division` }
+            : divAreaTierIdx < divAreaSorted.length * 0.5
+            ? { bn: `${parentDiv.bnName} বিভাগের দ্বিতীয় চতুর্থাংশের (মাঝারি-বৃহৎ) ইউনিট`, en: `Upper-middle (25–50%) by area in ${parentDiv.name} Division` }
+            : divAreaTierIdx < divAreaSorted.length * 0.75
+            ? { bn: `${parentDiv.bnName} বিভাগের তৃতীয় চতুর্থাংশের (মাঝারি-ক্ষুদ্র) ইউনিট`, en: `Lower-middle (50–75%) by area in ${parentDiv.name} Division` }
+            : { bn: `${parentDiv.bnName} বিভাগের সর্বনিম্ন ২৫% ক্ষুদ্র ইউনিটের একটি`, en: `Smallest 25% by area in ${parentDiv.name} Division` };
+        const divQuartileOptions: OptionPair[] = [
+          { bn: `${parentDiv.bnName} বিভাগের শীর্ষ ২৫% বৃহৎ ইউনিটের একটি`, en: `Top 25% largest units in ${parentDiv.name} Division` },
+          { bn: `${parentDiv.bnName} বিভাগের দ্বিতীয় চতুর্থাংশের (মাঝারি-বৃহৎ) ইউনিট`, en: `Upper-middle (25–50%) by area in ${parentDiv.name} Division` },
+          { bn: `${parentDiv.bnName} বিভাগের তৃতীয় চতুর্থাংশের (মাঝারি-ক্ষুদ্র) ইউনিট`, en: `Lower-middle (50–75%) by area in ${parentDiv.name} Division` },
+          { bn: `${parentDiv.bnName} বিভাগের সর্বনিম্ন ২৫% ক্ষুদ্র ইউনিটের একটি`, en: `Smallest 25% by area in ${parentDiv.name} Division` },
+        ].filter((o) => o.en !== divAreaQuartile.en);
+        pushQ(
+          buildQuestion(
+            nextId('u-div-qarea'),
+            1,
+            'geography_borders',
+            `আয়তনের দিক থেকে নিজ বিভাগ (${parentDiv.bnName})-এ ${uLabelBn}-এর অবস্থান কোন শ্রেণিতে?`,
+            `How does ${uLabelEn} rank by land area quartile within ${parentDiv.name} Division?`,
+            divAreaQuartile,
+            divQuartileOptions,
+            `${uLabelBn} (~${formatNum(u.areaKm2, 'bn')} কিমি²) ${divAreaQuartile.bn}।`,
+            `${uLabelEn} (~${u.areaKm2} km²) sits in the ${divAreaQuartile.en}.`
+          )
+        );
+
+        pushQ(
+          buildQuestion(
+            nextId('u-metro-chk'),
+            1,
+            'heritage_facts',
+            `${uLabelBn} কি সিটি কর্পোরেশনের মহানগর থানাভুক্ত এলাকা?`,
+            `Is ${uLabelEn} classified as a metropolitan City Corporation thana?`,
+            uDetail.isUrbanThana
+              ? { bn: 'হ্যাঁ, এটি মহানগর থানাভুক্ত নগর এলাকা', en: 'Yes, it is a metropolitan city thana' }
+              : { bn: 'না, এটি মহানগর থানা নয় — স্বতন্ত্র উপজেলা', en: 'No, it is a regular upazila rather than an urban thana' },
+            [
+              uDetail.isUrbanThana
+                ? { bn: 'না, এটি মহানগর থানা নয় — স্বতন্ত্র উপজেলা', en: 'No, it is a regular upazila rather than an urban thana' }
+                : { bn: 'হ্যাঁ, এটি মহানগর থানাভুক্ত নগর এলাকা', en: 'Yes, it is a metropolitan city thana' },
+              { bn: 'এটি শুধুমাত্র একটি স্থলবন্দর শুল্ক অঞ্চল', en: 'It is exclusively an uninhabited land-port enclave' },
+              { bn: 'এটি পার্বত্য বন্যপ্রাণী অভয়ারণ্য মাত্র', en: 'It is strictly a mountainous wildlife sanctuary only' },
+            ],
+            uDetail.isUrbanThana
+              ? `${uLabelBn} একটি মহানগর থানা এলাকা।`
+              : `${uLabelBn} মহানগর থানা নয়, এটি একটি উপজেলা।`,
+            uDetail.isUrbanThana
+              ? `${uLabelEn} is a metropolitan urban thana.`
+              : `${uLabelEn} is a regular upazila.`
+          )
+        );
       }
     }
   }

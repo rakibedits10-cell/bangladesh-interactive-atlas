@@ -742,7 +742,7 @@ const CURATED_UPAZILAS: Record<string, CuratedUpazilaPatch> = {
     summaryEn: 'Anchoring the expanse of Chalan Beel, Singra transforms into a shimmering inland wetland during monsoon and yields rich winter garlic and paddy.',
   },
   u230: {
-    famousForBn: 'রবীন্দ্রনাথ ঠাকুরের কাছারিবাড়ি (সাজাদপুর), বাঘাবাড়ি নদী বন্দর ও দেশের প্রধান দুগ্ধ উৎপাদন অঞ্চল (মিল্ক ভিটা)',
+    famousForBn: 'রবীন্দ্রনাথ ঠাকুরের কাছারিবাড়ি (শাহজাদপুর), বাঘাবাড়ি নদী বন্দর ও দেশের প্রধান দুগ্ধ উৎপাদন অঞ্চল (মিল্ক ভিটা)',
     famousForEn: 'Rabindranath Tagore’s Kachari Bari estate, Baghabari River Port, and Bangladesh’s dairy capital (Milk Vita)',
     landmarksBn: ['রবীন্দ্রনাথ ঠাকুরের কাছারিবাড়ি ও জাদুঘর', 'মখদুম শাহদৌলা শহীদ ইয়ামেনীর মাজার ও মসজিদ', 'বাঘাবাড়ি নদীবন্দর ও মিল্ক ভিটা'],
     landmarksEn: ['Rabindranath Tagore’s Kachari Bari', 'Makhdum Shahdowla Shrine & Mosque', 'Baghabari Port & Milk Vita'],
@@ -868,8 +868,8 @@ const CURATED_UPAZILAS: Record<string, CuratedUpazilaPatch> = {
   u322: {
     famousForBn: 'সাগরকন্যা কুয়াকাটা সমুদ্রসৈকত (যেখান থেকে একই স্থানে সূর্যোদয় ও সূর্যাস্ত দেখা যায়), পায়রা বন্দর সংলগ্ন ও রাখাইন পল্লি',
     famousForEn: 'Kuakata Sea Beach ("Daughter of the Sea") offering both sunrise and sunset over the Bay of Bengal, and Payra Port',
-    landmarksBn: ['কুয়াকাটা সমুদ্রসৈকত (১৮ কিমি দীর্ঘ)', 'গঙ্গামতির চর ও ফাতরার চর (ম্যানগ্রোভ)', 'মিশ্রিপাড়া বৌদ্ধ বিহার ও রাখাইন পল্লি', 'পায়রা সমুদ্রবন্দর ও সাবমেরিন কেবল স্টেশন'],
-    landmarksEn: ['Kuakata Sea Beach (Sunrise & Sunset)', 'Gangamati & Fatrar Char Mangroves', 'Misripara Rakhine Buddhist Temple', 'Payra Seaport'],
+    landmarksBn: ['কুয়াকাটা সমুদ্রসৈকত (১৮ কিমি দীর্ঘ)', 'গঙ্গামতির চর ও লাল কাঁকড়ার চর', 'মিশ্রিপাড়া বৌদ্ধ বিহার ও রাখাইন পল্লি', 'পায়রা সমুদ্রবন্দর ও সাবমেরিন কেবল স্টেশন'],
+    landmarksEn: ['Kuakata Sea Beach (Sunrise & Sunset)', 'Gangamati Char & Red Crab Beach', 'Misripara Rakhine Buddhist Temple', 'Payra Seaport'],
     specialtiesBn: 'সামুদ্রিক মাছ, রাখাইন তাঁতবস্ত্র, শুঁটকি ও নারিকেল',
     specialtiesEn: 'Rakhine handloom fabrics, marine hilsa, dried fish, and beach tourism',
     connectivityBn: 'পটুয়াখালী-কুয়াকাটা মহাসড়ক (পায়রা ও লেবুখালী সেতু হয়ে)',
