@@ -755,40 +755,35 @@ export const QuizPage: React.FC<QuizPageProps> = ({
   const currentQuestion = questions[currentIdx];
 
   return (
-    <section className="space-y-6">
-      {/* Page Header */}
-      <div className="pb-5 border-b border-slate-200 dark:border-slate-800">
-        <div className="max-w-3xl mx-auto">
+    <section className="space-y-4">
+      {/* Slim Single-Line Header for Active / Result Stages */}
+      {stage !== 'setup' && (
+        <div className="max-w-3xl mx-auto pb-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+          <h1 className="font-display text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight truncate">
+            {lang === 'bn' ? 'বাংলাদেশ ভূগোল কুইজ' : 'Bangladesh Geography Quiz'}
+          </h1>
           <button
             type="button"
             onClick={onBackToMap}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 hover:underline mb-2"
+            className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400 hover:underline whitespace-nowrap shrink-0"
           >
             <ArrowLeft className="w-3.5 h-3.5" />
             <span>{lang === 'bn' ? 'মানচিত্রে ফিরে যান' : 'Back to Map'}</span>
           </button>
-          <h1 className="font-display text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight text-balance">
-            {lang === 'bn' ? 'বাংলাদেশ ভূগোল কুইজ' : 'Bangladesh Geography Quiz'}
-          </h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400 mt-1.5 leading-relaxed">
-            {lang === 'bn'
-              ? 'পুরো বাংলাদেশ অথবা নির্দিষ্ট বিভাগ, জেলা ও উপজেলা বেছে নিয়ে ১০, ১৫ বা ২০ নম্বরের কুইজ দিন। প্রতি প্রশ্নের মান ১ নম্বর।'
-              : 'Test your knowledge across whole Bangladesh or a specific division, district, or upazila with 10, 15, or 20 marks (1 mark per question).'}
-          </p>
         </div>
-      </div>
+      )}
 
       {/* SETUP STAGE */}
       {stage === 'setup' && (
-        <div className="max-w-3xl mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 sm:p-6 space-y-6">
-          <div>
-            <h2 className="font-display text-lg font-bold text-slate-900 dark:text-white">
+        <div className="max-w-3xl mx-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 sm:p-6 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-1">
+            <h1 className="font-display text-lg sm:text-xl font-bold text-slate-900 dark:text-white">
               {lang === 'bn' ? 'কুইজ সেটআপ করুন' : 'Configure Your Quiz'}
-            </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+            </h1>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
               {lang === 'bn'
-                ? 'প্রোফাইল, পরিসর, কুইজের ধরন ও প্রশ্ন সংখ্যা নির্বাচন করে শুরু করুন।'
-                : 'Set your profile, region scope, topic style, and total marks.'}
+                ? 'বাংলাদেশ ভূগোল কুইজ · ১০, ১৫ বা ২০ নম্বর (প্রতি প্রশ্ন ১)'
+                : 'Bangladesh Geography Quiz · 10, 15, or 20 marks'}
             </p>
           </div>
 

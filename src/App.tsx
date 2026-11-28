@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, Filter, Moon, Search, Sun, Waves, X } from 'lucide-react';
+import { Check, ChevronDown, Filter, HelpCircle, Moon, Search, Sun, Waves, X } from 'lucide-react';
 import rawGeoData from './data/bdMapGeo.json';
 import rawUpazilaGeoData from './data/bdUpazilasGeo.json';
 import {
@@ -29,7 +29,17 @@ const upazilaGeoData = rawUpazilaGeoData as BdUpazilasGeoData;
 type ActivePage = 'map' | 'quiz' | 'conquer';
 type RegionOption = Exclude<DirectionZone, 'all'>;
 
-const REGION_OPTIONS: RegionOption[] = ['north', 'south', 'east', 'west', 'central'];
+const REGION_OPTIONS: RegionOption[] = [
+  'north',
+  'south',
+  'east',
+  'west',
+  'central',
+  'northeast',
+  'northwest',
+  'southeast',
+  'southwest',
+];
 
 type SearchItem =
   | { type: 'division'; division: GeoDivision }
@@ -63,6 +73,7 @@ export default function App() {
 
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [searchOpen, setSearchOpen] = useState<boolean>(false);
+  const [mapHelpOpen, setMapHelpOpen] = useState<boolean>(false);
 
   const pageTopRef = useRef<HTMLDivElement>(null);
   const filterBarRef = useRef<HTMLDivElement>(null);
@@ -109,6 +120,15 @@ export default function App() {
       window.removeEventListener('keydown', handleKey);
     };
   }, [openFilterMenu]);
+
+  useEffect(() => {
+    if (!mapHelpOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMapHelpOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mapHelpOpen]);
 
   const searchResults = useMemo<SearchItem[]>(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -367,7 +387,7 @@ export default function App() {
               )}
             </div>
 
-            <div className="p-2 space-y-1">
+            <div className="p-2 space-y-1 max-h-72 overflow-y-auto">
               {REGION_OPTIONS.map((dir) => {
                 const info = DIRECTION_INFO[dir];
                 const checked = draftDirections.includes(dir);
@@ -690,9 +710,27 @@ export default function App() {
             })}
           </nav>
 
-          {/* Zone 3: Install + Language Action */}
+          {/* Zone 3: Install + Theme + Language Action */}
           <div className="flex items-center gap-2 shrink-0">
             <PWAInstallButton lang={lang} />
+            <button
+              type="button"
+              onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+              aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
+              className="hidden md:inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
+            >
+              {theme === 'dark' ? (
+                <>
+                  <Sun className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{lang === 'bn' ? 'লাইট' : 'Light'}</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="w-3.5 h-3.5 text-slate-600" />
+                  <span>{lang === 'bn' ? 'ডার্ক' : 'Dark'}</span>
+                </>
+              )}
+            </button>
             <button
               type="button"
               onClick={() => setLang((prev) => (prev === 'bn' ? 'en' : 'bn'))}
@@ -708,10 +746,10 @@ export default function App() {
       <main
         id="atlas"
         ref={pageTopRef}
-        className="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 py-4 sm:py-6"
+        className="flex-1 max-w-[1440px] w-full mx-auto px-3.5 sm:px-6 py-2.5 sm:py-4"
       >
         {/* Mobile Page Navigation Strip + Theme Switch */}
-        <div className="flex md:hidden items-center justify-between gap-2 pb-4 mb-4 border-b border-slate-200 dark:border-slate-800">
+        <div className="flex md:hidden items-center justify-between gap-2 pb-2.5 mb-3 border-b border-slate-200 dark:border-slate-800">
           <nav
             aria-label={lang === 'bn' ? 'মোবাইল মেনু' : 'Mobile Navigation'}
             className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-1 rounded-lg overflow-x-auto"
@@ -739,7 +777,7 @@ export default function App() {
             type="button"
             onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
             aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-            className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shrink-0"
+            className="p-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 shrink-0"
           >
             {theme === 'dark' ? (
               <Sun className="w-4 h-4 text-amber-400" />
@@ -752,25 +790,23 @@ export default function App() {
         {/* PAGE 1: INTERACTIVE BANGLADESH MAP */}
         {activePage === 'map' && (
           <>
-            {/* Workspace Header: Title, Unified Division+District+Upazila Search & Dark Mode */}
-            <section className="mb-4">
-              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
-                <div className="max-w-2xl">
-                  <h1 className="font-display text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight text-balance">
-                    {lang === 'bn'
-                      ? `বাংলাদেশের মানচিত্র · ৮ বিভাগ, ৬৪ জেলা ও ${formatNum(upazilaGeoData.upazilas.length, lang)} উপজেলা`
-                      : `Bangladesh Map · 8 Divisions, 64 Districts & ${upazilaGeoData.upazilas.length} Upazilas`}
+            {/* Compact Workspace Header: Concise Title (md+) & Unified Search */}
+            <section className="mb-3">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+                <div className="hidden md:flex items-baseline gap-2.5 min-w-0">
+                  <h1 className="font-display text-lg lg:text-xl font-bold text-slate-900 dark:text-white tracking-tight truncate">
+                    {lang === 'bn' ? 'বাংলাদেশের মানচিত্র' : 'Bangladesh Map'}
                   </h1>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 leading-relaxed">
+                  <span className="text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">
                     {lang === 'bn'
-                      ? 'মানচিত্রে বিভাগ দেখুন ও জুম করে জেলা-উপজেলায় যান; যেকোনো বিভাগ, জেলা বা উপজেলায় ক্লিক করলে বিস্তারিত তথ্য খুলবে।'
-                      : 'Start with Divisions and zoom in for Districts & Upazilas; click any area to explore neighbors, rivers, and full details.'}
-                  </p>
+                      ? `৮ বিভাগ · ৬৪ জেলা · ${formatNum(upazilaGeoData.upazilas.length, lang)} উপজেলা`
+                      : `8 Divisions · 64 Districts · ${upazilaGeoData.upazilas.length} Upazilas`}
+                  </span>
                 </div>
 
-                <div className="flex items-center gap-2.5 w-full lg:w-auto shrink-0">
+                <div className="flex items-center gap-2.5 w-full md:w-auto shrink-0">
                   {/* Unified Division + District + Upazila Search Box */}
-                  <div className="relative flex-1 lg:w-80">
+                  <div className="relative flex-1 md:w-80">
                     <label htmlFor="district-search" className="sr-only">
                       {lang === 'bn' ? 'বিভাগ, জেলা বা উপজেলা খুঁজুন' : 'Search divisions, districts or upazilas'}
                     </label>
@@ -900,26 +936,6 @@ export default function App() {
                       </div>
                     )}
                   </div>
-
-                  {/* Dark / Light Mode Toggle (Desktop) */}
-                  <button
-                    type="button"
-                    onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-                    aria-label={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'}
-                    className="hidden md:inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap shrink-0"
-                  >
-                    {theme === 'dark' ? (
-                      <>
-                        <Sun className="w-4 h-4 text-amber-400" />
-                        <span>{lang === 'bn' ? 'লাইট মোড' : 'Light'}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Moon className="w-4 h-4 text-slate-600" />
-                        <span>{lang === 'bn' ? 'ডার্ক মোড' : 'Dark'}</span>
-                      </>
-                    )}
-                  </button>
                 </div>
               </div>
             </section>
@@ -947,6 +963,7 @@ export default function App() {
                     onSelectDistrict={(id) => handleSelectDistrict(id)}
                     onSelectUpazila={(id) => handleSelectUpazila(id)}
                     onResetView={handleResetView}
+                    onOpenHelp={() => setMapHelpOpen(true)}
                   />
                 </div>
 
@@ -996,77 +1013,36 @@ export default function App() {
                   onSelectDistrict={(id) => handleSelectDistrict(id)}
                   onSelectUpazila={(id) => handleSelectUpazila(id)}
                   onResetView={handleResetView}
+                  onOpenHelp={() => setMapHelpOpen(true)}
                 />
               </section>
             )}
           </>
         )}
 
-        {/* PAGE 2: BANGLADESH QUIZ & LEADERBOARD */}
+        {/* PAGE 2: BANGLADESH QUIZ */}
         {activePage === 'quiz' && (
-          <>
-            <div className="hidden md:flex justify-end mb-2">
-              <button
-                type="button"
-                onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                {theme === 'dark' ? (
-                  <>
-                    <Sun className="w-3.5 h-3.5 text-amber-400" />
-                    <span>{lang === 'bn' ? 'লাইট মোড' : 'Light'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Moon className="w-3.5 h-3.5 text-slate-600" />
-                    <span>{lang === 'bn' ? 'ডার্ক মোড' : 'Dark'}</span>
-                  </>
-                )}
-              </button>
-            </div>
-            <QuizPage
-              divisions={mapGeoData.divisions}
-              districts={mapGeoData.districts}
-              upazilas={upazilaGeoData.upazilas}
-              rivers={mapGeoData.rivers}
-              lang={lang}
-              onBackToMap={() => navigateToPage('map')}
-            />
-          </>
+          <QuizPage
+            divisions={mapGeoData.divisions}
+            districts={mapGeoData.districts}
+            upazilas={upazilaGeoData.upazilas}
+            rivers={mapGeoData.rivers}
+            lang={lang}
+            onBackToMap={() => navigateToPage('map')}
+          />
         )}
 
         {/* PAGE 3: CONQUER BANGLADESH THROUGH KNOWLEDGE */}
         {activePage === 'conquer' && (
-          <>
-            <div className="hidden md:flex justify-end mb-2">
-              <button
-                type="button"
-                onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
-                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-medium text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-              >
-                {theme === 'dark' ? (
-                  <>
-                    <Sun className="w-3.5 h-3.5 text-amber-400" />
-                    <span>{lang === 'bn' ? 'লাইট মোড' : 'Light'}</span>
-                  </>
-                ) : (
-                  <>
-                    <Moon className="w-3.5 h-3.5 text-slate-600" />
-                    <span>{lang === 'bn' ? 'ডার্ক মোড' : 'Dark'}</span>
-                  </>
-                )}
-              </button>
-            </div>
-            <ConquerBangladeshPage
-              divisions={mapGeoData.divisions}
-              districts={mapGeoData.districts}
-              upazilas={upazilaGeoData.upazilas}
-              rivers={mapGeoData.rivers}
-              lang={lang}
-              theme={theme}
-              onBackToMap={() => navigateToPage('map')}
-            />
-          </>
+          <ConquerBangladeshPage
+            divisions={mapGeoData.divisions}
+            districts={mapGeoData.districts}
+            upazilas={upazilaGeoData.upazilas}
+            rivers={mapGeoData.rivers}
+            lang={lang}
+            theme={theme}
+            onBackToMap={() => navigateToPage('map')}
+          />
         )}
       </main>
 
@@ -1086,6 +1062,120 @@ export default function App() {
         </div>
       </footer>
       <OfflineIndicator lang={lang} />
+
+      {/* Map Page Help Modal */}
+      {mapHelpOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs"
+          onClick={() => setMapHelpOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="map-help-title"
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                <h2
+                  id="map-help-title"
+                  className="font-display text-base font-bold text-slate-900 dark:text-white"
+                >
+                  {lang === 'bn'
+                    ? 'বাংলাদেশ মানচিত্র ব্যবহার নির্দেশিকা'
+                    : 'How to Use Bangladesh Map'}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMapHelpOpen(false)}
+                aria-label={lang === 'bn' ? 'বন্ধ করুন' : 'Close'}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+              <div className="flex items-start gap-3">
+                <span className="w-5 h-5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-mono-tabular font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
+                  {formatNum(1, lang)}
+                </span>
+                <div>
+                  <div className="font-semibold text-slate-900 dark:text-white">
+                    {lang === 'bn' ? 'জুম করে স্তর দেখুন' : 'Zoom Across Tiers'}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {lang === 'bn'
+                      ? 'মানচিত্রে জুম (+)/স্ক্রল করলে পর্যায়ক্রমে ৮টি বিভাগ, ৬৪টি জেলা এবং ৫৪৪টি উপজেলা দেখা যাবে।'
+                      : 'Zoom in or scroll to reveal 8 Divisions, then 64 Districts, and finally 544 Upazilas.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <span className="w-5 h-5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-mono-tabular font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
+                  {formatNum(2, lang)}
+                </span>
+                <div>
+                  <div className="font-semibold text-slate-900 dark:text-white">
+                    {lang === 'bn' ? 'তথ্য ও সীমানা দেখুন' : 'Inspect Areas & Borders'}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {lang === 'bn'
+                      ? 'যেকোনো বিভাগ, জেলা বা উপজেলায় ক্লিক করলে তার সীমান্ত, পার্শ্ববর্তী এলাকা, নদ-নদী ও বিস্তারিত তথ্য খুলবে।'
+                      : 'Click any Division, District, or Upazila to view its neighboring borders, rivers, and detailed profile.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <span className="w-5 h-5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-mono-tabular font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
+                  {formatNum(3, lang)}
+                </span>
+                <div>
+                  <div className="font-semibold text-slate-900 dark:text-white">
+                    {lang === 'bn' ? 'অঞ্চল ও নদ-নদী ফিল্টার' : 'Region & River Filters'}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {lang === 'bn'
+                      ? 'উপরের "অঞ্চল" ও "প্রধান নদ-নদী" ফিল্টার ব্যবহার করে দেশের অঞ্চলভেদ বা ৩০টি প্রধান নদীর প্রবাহ ও উৎস-মোহনা দেখুন।'
+                      : 'Use Region and Major Rivers filters to highlight zones or trace the origin, flow, and mouth of 30 major rivers.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <span className="w-5 h-5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-mono-tabular font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
+                  {formatNum(4, lang)}
+                </span>
+                <div>
+                  <div className="font-semibold text-slate-900 dark:text-white">
+                    {lang === 'bn' ? 'অনুসন্ধান ও ফুলস্ক্রিন' : 'Quick Search & Fullscreen'}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {lang === 'bn'
+                      ? 'সার্চ বক্সে নাম লিখে সরাসরি যেকোনো এলাকা খুঁজুন বা ফুলস্ক্রিন বোতামে ক্লিক করে পুরো স্ক্রিনে মানচিত্র দেখুন।'
+                      : 'Search by name to jump to any location instantly, or use Fullscreen for an expanded map view.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-3 bg-slate-50 dark:bg-slate-950/50 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setMapHelpOpen(false)}
+                className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white text-xs font-semibold transition-colors cursor-pointer"
+              >
+                {lang === 'bn' ? 'বুঝেছি' : 'Got it'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

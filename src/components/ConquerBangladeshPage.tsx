@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ArrowRight,
@@ -9,6 +9,7 @@ import {
   Copy,
   Download,
   Flag,
+  HelpCircle,
   MapPin,
   RotateCcw,
   Search,
@@ -57,6 +58,7 @@ interface ConquestRecord {
   timeSec: number;
   conqueredAt: number;
   bestScore?: number;
+  totalQuestions?: number;
 }
 
 interface ConquestState {
@@ -76,16 +78,42 @@ interface TargetInfo {
   bbox: [number, number, number, number];
 }
 
+interface TierChallengeRules {
+  questionCount: 20 | 30;
+  durationSec: number;
+  minutesBn: string;
+  minutesEn: string;
+  clockBn: string;
+  clockEn: string;
+}
+
 type ConquestStage = 'select' | 'active' | 'victory' | 'failed';
 
 const CONQUEST_STORAGE_KEY = 'bd_atlas_conquests_v1';
 const PLAYER_STORAGE_KEY = 'bd_atlas_quiz_player_v1';
-const CHALLENGE_DURATION_SEC = 300; // 5 minutes
-const CHALLENGE_QUESTION_COUNT = 30;
-const MIN_CORRECT_TO_CONQUER = 3;
-const DEFAULT_DIVISION_ID = '3'; // Dhaka
 const BENGALI_OPTION_LABELS = ['ক', 'খ', 'গ', 'ঘ'];
 const ENGLISH_OPTION_LABELS = ['A', 'B', 'C', 'D'];
+
+function getTierChallengeRules(tier: ConquestTier): TierChallengeRules {
+  if (tier === 'upazila') {
+    return {
+      questionCount: 20,
+      durationSec: 180,
+      minutesBn: '৩',
+      minutesEn: '3',
+      clockBn: '০৩:০০',
+      clockEn: '03:00',
+    };
+  }
+  return {
+    questionCount: 30,
+    durationSec: 300,
+    minutesBn: '৫',
+    minutesEn: '5',
+    clockBn: '০৫:০০',
+    clockEn: '05:00',
+  };
+}
 
 function loadConquestState(): ConquestState {
   const empty: ConquestState = { divisions: {}, districts: {}, upazilas: {} };
@@ -138,27 +166,9 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
     return localStorage.getItem(PLAYER_STORAGE_KEY) || '';
   });
 
-  const defaultDivisionId = useMemo(
-    () =>
-      (
-        divisions.find((d) => d.id === DEFAULT_DIVISION_ID || d.name.toLowerCase() === 'dhaka') ||
-        divisions[0]
-      )?.id || null,
-    [divisions]
-  );
-
-  // Map Selection State
+  // Map Selection State (nothing selected by default)
   const [selectedTier, setSelectedTier] = useState<ConquestTier>('division');
-  const [selectedId, setSelectedId] = useState<string | null>(() => {
-    const dhaka = divisions.find(
-      (d) => d.id === DEFAULT_DIVISION_ID || d.name.toLowerCase() === 'dhaka'
-    );
-    return (dhaka || divisions[0])?.id || null;
-  });
-  const [requestedZoomPreset, setRequestedZoomPreset] = useState<{
-    layer: 'divisions' | 'districts' | 'upazilas';
-    nonce: number;
-  } | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focusBBoxRequest, setFocusBBoxRequest] = useState<{
     bbox: [number, number, number, number];
     minZoom: number;
@@ -172,9 +182,10 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<number, number>>({});
   const [currentIdx, setCurrentIdx] = useState<number>(0);
-  const [remainingSec, setRemainingSec] = useState<number>(CHALLENGE_DURATION_SEC);
+  const [remainingSec, setRemainingSec] = useState<number>(300);
   const [completionSec, setCompletionSec] = useState<number>(0);
-  const [lastCorrectCount, setLastCorrectCount] = useState<number>(MIN_CORRECT_TO_CONQUER);
+  const [lastCorrectCount, setLastCorrectCount] = useState<number>(30);
+  const [lastTotalQuestions, setLastTotalQuestions] = useState<number>(30);
   const [timedOut, setTimedOut] = useState<boolean>(false);
   const [reviewExpanded, setReviewExpanded] = useState<boolean>(false);
 
@@ -183,6 +194,34 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
   const [photocard, setPhotocard] = useState<RenderedPhotocard | null>(null);
   const [renderingCard, setRenderingCard] = useState<boolean>(false);
   const [shareFeedback, setShareFeedback] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState<boolean>(false);
+  const mapSectionRef = useRef<HTMLDivElement>(null);
+  const briefingCardRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!helpOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setHelpOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [helpOpen]);
+
+  const scrollToBriefingOnMobileOrTablet = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    if (window.innerWidth >= 1024 || document.fullscreenElement) return;
+    window.setTimeout(() => {
+      briefingCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 80);
+  }, []);
+
+  const scrollToMapOnMobileOrTablet = useCallback(() => {
+    if (typeof window === 'undefined') return;
+    if (window.innerWidth >= 1024 || document.fullscreenElement) return;
+    window.setTimeout(() => {
+      mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+  }, []);
 
   const divisionById = useMemo(
     () => new Map(divisions.map((d) => [d.id, d])),
@@ -374,12 +413,18 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
     conqueredUpazilaSet,
   ]);
 
+  const targetRules = useMemo(
+    () => getTierChallengeRules(selectedTarget?.tier || selectedTier),
+    [selectedTarget?.tier, selectedTier]
+  );
+
   const buildPhotocardForTarget = useCallback(
     async (
       target: TargetInfo,
       timeSec: number,
       conqueredAt: number,
       correctCount: number,
+      totalQuestionsCount: number,
       customName?: string
     ) => {
       setRenderingCard(true);
@@ -397,7 +442,7 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
           completionSec: timeSec,
           conqueredAt,
           correctCount,
-          totalQuestions: CHALLENGE_QUESTION_COUNT,
+          totalQuestions: totalQuestionsCount,
         });
         setPhotocard(card);
       } catch {
@@ -412,6 +457,8 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
   // Evaluate quiz submission or timeout
   const finishChallenge = useCallback(
     (finalAnswers: Record<number, number>, didTimeout: boolean, usedSec: number) => {
+      const rules = getTierChallengeRules(selectedTarget?.tier || selectedTier);
+      const requiredCount = rules.questionCount;
       let correctCount = 0;
       for (let i = 0; i < questions.length; i += 1) {
         if (finalAnswers[i] === questions[i].correctIndex) {
@@ -422,11 +469,12 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
       setTimedOut(didTimeout);
       setCompletionSec(usedSec);
       setLastCorrectCount(correctCount);
+      setLastTotalQuestions(questions.length || requiredCount);
 
       const hasConquered =
         !didTimeout &&
-        questions.length === CHALLENGE_QUESTION_COUNT &&
-        correctCount >= MIN_CORRECT_TO_CONQUER;
+        questions.length === requiredCount &&
+        correctCount === requiredCount;
 
       if (hasConquered && selectedTarget) {
         const now = Date.now();
@@ -439,8 +487,10 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
               : 'upazilas';
           const existing = prev[key][selectedTarget.id];
           const bestTime = existing ? Math.min(existing.timeSec, usedSec) : usedSec;
-          const prevScore = existing?.bestScore ?? CHALLENGE_QUESTION_COUNT;
-          const nextBestScore = existing ? Math.max(prevScore, correctCount) : correctCount;
+          const prevScore = existing?.bestScore ?? requiredCount;
+          const nextBestScore = existing
+            ? Math.min(requiredCount, Math.max(prevScore, correctCount))
+            : correctCount;
           const next: ConquestState = {
             ...prev,
             [key]: {
@@ -449,6 +499,7 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
                 timeSec: bestTime,
                 conqueredAt: existing?.conqueredAt || now,
                 bestScore: nextBestScore,
+                totalQuestions: requiredCount,
               },
             },
           };
@@ -459,16 +510,16 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
         setStage('victory');
         setReviewExpanded(false);
         setFireworkKey((k) => k + 1);
-        void buildPhotocardForTarget(selectedTarget, usedSec, now, correctCount);
+        void buildPhotocardForTarget(selectedTarget, usedSec, now, correctCount, requiredCount);
       } else {
         setStage('failed');
         setReviewExpanded(true);
       }
     },
-    [questions, selectedTarget, buildPhotocardForTarget]
+    [questions, selectedTarget, selectedTier, buildPhotocardForTarget]
   );
 
-  // 5-Minute Countdown Timer during Active Challenge
+  // Countdown Timer during Active Challenge
   useEffect(() => {
     if (stage !== 'active') return;
     const id = window.setInterval(() => {
@@ -486,12 +537,13 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
   // Trigger timeout finish when timer hits 0 during active stage
   useEffect(() => {
     if (stage === 'active' && remainingSec === 0 && questions.length > 0) {
-      finishChallenge(answers, true, CHALLENGE_DURATION_SEC);
+      finishChallenge(answers, true, targetRules.durationSec);
     }
-  }, [stage, remainingSec, questions.length, answers, finishChallenge]);
+  }, [stage, remainingSec, questions.length, answers, finishChallenge, targetRules.durationSec]);
 
   const handleStartConquest = () => {
     if (!selectedTarget) return;
+    const rules = getTierChallengeRules(selectedTarget.tier);
     const scopeType: QuizScopeType =
       selectedTarget.tier === 'division'
         ? 'division'
@@ -504,16 +556,18 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
         scopeType,
         scopeId: selectedTarget.id,
         category: 'mixed',
-        questionCount: CHALLENGE_QUESTION_COUNT,
+        questionCount: rules.questionCount,
       },
       { divisions, districts, upazilas, rivers }
     );
 
-    setQuestions(generated.slice(0, CHALLENGE_QUESTION_COUNT));
+    const picked = generated.slice(0, rules.questionCount);
+    setQuestions(picked);
     setAnswers({});
     setCurrentIdx(0);
-    setRemainingSec(CHALLENGE_DURATION_SEC);
+    setRemainingSec(rules.durationSec);
     setCompletionSec(0);
+    setLastTotalQuestions(picked.length || rules.questionCount);
     setTimedOut(false);
     setPhotocard(null);
     setShareFeedback(null);
@@ -523,9 +577,12 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
 
   const handleViewExistingPhotocard = () => {
     if (!selectedTarget || !selectedTargetRecord) return;
-    const savedScore = selectedTargetRecord.bestScore ?? CHALLENGE_QUESTION_COUNT;
+    const rules = getTierChallengeRules(selectedTarget.tier);
+    const totalQ = selectedTargetRecord.totalQuestions ?? rules.questionCount;
+    const savedScore = Math.min(totalQ, selectedTargetRecord.bestScore ?? totalQ);
     setCompletionSec(selectedTargetRecord.timeSec);
     setLastCorrectCount(savedScore);
+    setLastTotalQuestions(totalQ);
     setTimedOut(false);
     setQuestions([]);
     setStage('victory');
@@ -534,7 +591,8 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
       selectedTarget,
       selectedTargetRecord.timeSec,
       selectedTargetRecord.conqueredAt,
-      savedScore
+      savedScore,
+      totalQ
     );
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -542,36 +600,19 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
   const handleMapSelectDivision = (divId: string) => {
     setSelectedTier('division');
     setSelectedId(divId);
+    scrollToBriefingOnMobileOrTablet();
   };
 
   const handleMapSelectDistrict = (distId: string) => {
     setSelectedTier('district');
     setSelectedId(distId);
+    scrollToBriefingOnMobileOrTablet();
   };
 
   const handleMapSelectUpazila = (upzId: string) => {
     setSelectedTier('upazila');
     setSelectedId(upzId);
-  };
-
-  const handleLayerPresetClick = (layer: 'divisions' | 'districts' | 'upazilas') => {
-    setRequestedZoomPreset({ layer, nonce: Date.now() });
-    if (layer === 'divisions') {
-      setSelectedTier('division');
-      if (selectedTier !== 'division') {
-        setSelectedId(defaultDivisionId);
-      }
-    } else if (layer === 'districts') {
-      setSelectedTier('district');
-      if (selectedTier !== 'district') {
-        setSelectedId(districts[0]?.id || null);
-      }
-    } else {
-      setSelectedTier('upazila');
-      if (selectedTier !== 'upazila') {
-        setSelectedId(upazilas[0]?.id || null);
-      }
-    }
+    scrollToBriefingOnMobileOrTablet();
   };
 
   const handleSelectSearchTarget = (item: {
@@ -585,6 +626,7 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
     setTargetSearchOpen(false);
     const minZoom = item.tier === 'division' ? 1 : item.tier === 'district' ? 1.85 : 3.2;
     setFocusBBoxRequest({ bbox: item.bbox, minZoom, nonce: Date.now() });
+    scrollToBriefingOnMobileOrTablet();
   };
 
   const handleCopyPhotocard = async () => {
@@ -625,8 +667,9 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
   const handleNativeShare = async () => {
     if (!selectedTarget) return;
     const headline = getConquestHeadline(selectedTarget.tier);
-    const accuracyPct = Math.round((lastCorrectCount / CHALLENGE_QUESTION_COUNT) * 100);
-    const shareText = `${headline}: ${selectedTarget.nameEn} (${selectedTarget.nameBn}) — ${lastCorrectCount}/${CHALLENGE_QUESTION_COUNT} (${accuracyPct}% accuracy) in Conquer Bangladesh Through Knowledge!`;
+    const totalQ = lastTotalQuestions || targetRules.questionCount;
+    const accuracyPct = Math.round((lastCorrectCount / Math.max(1, totalQ)) * 100);
+    const shareText = `${headline}: ${selectedTarget.nameEn} (${selectedTarget.nameBn}) — ${lastCorrectCount}/${totalQ} (${accuracyPct}% accuracy) in Conquer Bangladesh Through Knowledge!`;
     const shareUrl = typeof window !== 'undefined' ? window.location.href : '';
 
     if (typeof navigator !== 'undefined' && navigator.share) {
@@ -664,34 +707,6 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
   const currentQuestion = questions[currentIdx] || null;
   const optLabels = lang === 'bn' ? BENGALI_OPTION_LABELS : ENGLISH_OPTION_LABELS;
 
-  const mapLayerFilterControls = (
-    <div className="flex items-center gap-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg p-0.5">
-      {(
-        [
-          { layer: 'divisions' as const, tier: 'division' as const, bn: 'বিভাগ', en: 'Divisions' },
-          { layer: 'districts' as const, tier: 'district' as const, bn: 'জেলা', en: 'Districts' },
-          { layer: 'upazilas' as const, tier: 'upazila' as const, bn: 'উপজেলা', en: 'Upazilas' },
-        ]
-      ).map((item) => {
-        const active = selectedTier === item.tier;
-        return (
-          <button
-            key={item.layer}
-            type="button"
-            onClick={() => handleLayerPresetClick(item.layer)}
-            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors whitespace-nowrap ${
-              active
-                ? 'bg-emerald-700 dark:bg-emerald-600 text-white'
-                : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700'
-            }`}
-          >
-            {lang === 'bn' ? item.bn : item.en}
-          </button>
-        );
-      })}
-    </div>
-  );
-
   // Compute SVG miniature preview viewBox for the selected target
   const targetPreviewBox = useMemo(() => {
     if (!selectedTarget) return '0 0 800 1000';
@@ -702,10 +717,11 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
     return `${x1 - pad} ${y1 - pad} ${w + pad * 2} ${h + pad * 2}`;
   }, [selectedTarget]);
 
-  const accuracyPct = Math.round((lastCorrectCount / CHALLENGE_QUESTION_COUNT) * 100);
+  const activeTotalQuestions = lastTotalQuestions || targetRules.questionCount;
+  const accuracyPct = Math.round((lastCorrectCount / Math.max(1, activeTotalQuestions)) * 100);
   const shareTextEncoded = encodeURIComponent(
     selectedTarget
-      ? `${getConquestHeadline(selectedTarget.tier)} — ${selectedTarget.nameEn} (${selectedTarget.nameBn}) · ${lastCorrectCount}/${CHALLENGE_QUESTION_COUNT} (${accuracyPct}% Accuracy) in Conquer Bangladesh Through Knowledge!`
+      ? `${getConquestHeadline(selectedTarget.tier)} — ${selectedTarget.nameEn} (${selectedTarget.nameBn}) · ${lastCorrectCount}/${activeTotalQuestions} (${accuracyPct}% Accuracy) in Conquer Bangladesh Through Knowledge!`
       : 'Conquer Bangladesh Through Knowledge!'
   );
   const currentUrlEncoded = encodeURIComponent(
@@ -713,33 +729,105 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
   );
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Celebratory Canvas Fireworks when player conquers territory */}
       <FireworksBurst active={stage === 'victory'} burstKey={fireworkKey} />
 
-      {/* Top Editorial Header & National Conquest Progress */}
-      <section className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 border-b border-slate-200 dark:border-slate-800 pb-5">
-        <div className="space-y-2 max-w-2xl">
-          <button
-            type="button"
-            onClick={onBackToMap}
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 dark:text-emerald-400 hover:underline"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>{lang === 'bn' ? 'মানচিত্রে ফিরে যান' : 'Back to Map'}</span>
-          </button>
-          <h1 className="font-display text-2xl sm:text-3xl font-bold text-slate-900 dark:text-white tracking-tight">
+      {/* Mobile & Tablet Top Bar: Pic 4 Title + Compact Search Bar (PC stays completely unchanged) */}
+      {stage === 'select' && (
+        <section className="lg:hidden pb-2.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2.5">
+          <h1 className="font-display text-sm sm:text-base font-bold text-slate-900 dark:text-white tracking-tight leading-tight min-w-0">
             Conquer Bangladesh Through Knowledge
           </h1>
-          <p className="text-sm text-slate-600 dark:text-slate-400 leading-relaxed">
+
+          <div className="relative w-36 sm:w-52 shrink-0">
+            <label htmlFor="conquest-mobile-search" className="sr-only">
+              {lang === 'bn'
+                ? 'বিভাগ, জেলা বা উপজেলা খুঁজুন'
+                : 'Search Division, District or Upazila'}
+            </label>
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              id="conquest-mobile-search"
+              type="text"
+              value={targetSearch}
+              onFocus={() => setTargetSearchOpen(true)}
+              onBlur={() => setTimeout(() => setTargetSearchOpen(false), 180)}
+              onChange={(e) => {
+                setTargetSearch(e.target.value);
+                setTargetSearchOpen(true);
+              }}
+              placeholder={lang === 'bn' ? 'এলাকা খুঁজুন...' : 'Search area...'}
+              className="w-full pl-8 pr-7 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs text-slate-900 dark:text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-emerald-600"
+            />
+            {targetSearch && (
+              <button
+                type="button"
+                onClick={() => setTargetSearch('')}
+                aria-label={lang === 'bn' ? 'মুছুন' : 'Clear'}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {targetSearchOpen && targetSearch.trim().length > 0 && (
+              <div className="absolute right-0 mt-1.5 w-72 sm:w-80 max-w-[calc(100vw-1.75rem)] bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl z-40 max-h-64 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                {searchSuggestions.length > 0 ? (
+                  searchSuggestions.map((item) => (
+                    <button
+                      key={`cq-ms-${item.tier}-${item.id}`}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => handleSelectSearchTarget(item)}
+                      className="w-full px-3.5 py-2.5 text-left hover:bg-emerald-50 dark:hover:bg-emerald-950/50 flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-slate-900 dark:text-slate-100 truncate">
+                          {item.label}
+                        </div>
+                        <div className="text-xs text-slate-500 dark:text-slate-400">
+                          {item.sub}
+                        </div>
+                      </div>
+                      {item.conquered && (
+                        <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 dark:text-emerald-400 shrink-0">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>{lang === 'bn' ? 'জয়কৃত' : 'Conquered'}</span>
+                        </span>
+                      )}
+                    </button>
+                  ))
+                ) : (
+                  <div className="px-3.5 py-3 text-xs text-slate-500 dark:text-slate-400">
+                    {lang === 'bn' ? 'কোনো এলাকা পাওয়া যায়নি' : 'No matching area found'}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+
+      {/* Desktop Compact Header (and Active/Result Stages on Mobile & Tablet) */}
+      <section
+        className={`${
+          stage === 'select' ? 'hidden lg:flex' : 'flex'
+        } flex-col lg:flex-row lg:items-center justify-between gap-3 border-b border-slate-200 dark:border-slate-800 pb-3.5`}
+      >
+        <div className="space-y-0.5 max-w-2xl">
+          <h1 className="font-display text-xl sm:text-2xl font-bold text-slate-900 dark:text-white tracking-tight">
+            Conquer Bangladesh Through Knowledge
+          </h1>
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             {lang === 'bn'
-              ? 'মানচিত্র থেকে যেকোনো বিভাগ, জেলা বা উপজেলা বেছে নিন। ৫ মিনিটে ৩০টি প্রশ্নের মধ্যে কমপক্ষে ৩টি সঠিক উত্তর দিয়ে এলাকাটি জয় করুন।'
-              : 'Pick any Division, District, or Upazila from the map. Answer at least 3 out of 30 questions correctly within 5 minutes to conquer the territory.'}
+              ? 'উপজেলা: ২০ প্রশ্ন (৩ মি.) · জেলা ও বিভাগ: ৩০ প্রশ্ন (৫ মি.) · ১০০% সঠিক উত্তর'
+              : 'Upazila: 20 Qs (3m) · District/Division: 30 Qs (5m) · 100% accuracy'}
           </p>
         </div>
 
         {/* Clean Minimalist National Progress Summary (Zero Pills) */}
-        <div className="w-full lg:w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-2.5 shrink-0">
+        <div className="w-full lg:w-96 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-3 space-y-2 shrink-0">
           <div className="flex items-center justify-between text-xs">
             <span className="font-semibold text-slate-800 dark:text-slate-100 inline-flex items-center gap-1.5">
               <Flag className="w-3.5 h-3.5 text-emerald-700 dark:text-emerald-400" />
@@ -749,13 +837,13 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
               {formatNum(totalConquered, lang)} / {formatNum(totalTerritories, lang)} ({formatNum(totalPercent, lang)}%)
             </span>
           </div>
-          <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+          <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
             <div
               className="h-full bg-emerald-600 dark:bg-emerald-500 transition-all duration-300"
               style={{ width: `${Math.min(100, (totalConquered / Math.max(1, totalTerritories)) * 100)}%` }}
             />
           </div>
-          <div className="text-xs text-slate-500 dark:text-slate-400 font-mono-tabular flex flex-wrap items-center gap-x-3 gap-y-1">
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 font-mono-tabular flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
             <span>
               {lang === 'bn'
                 ? `বিভাগ ${formatNum(conqueredDivisionSet.size, lang)}/${formatNum(divisions.length, lang)}`
@@ -781,40 +869,79 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
       {stage === 'select' && (
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
           {/* Left 7 Columns: Interactive Conquest Map */}
-          <div className="lg:col-span-7">
+          <div ref={mapSectionRef} className="lg:col-span-7 scroll-mt-20 space-y-3">
             <BangladeshMapCanvas
               districts={districts}
               upazilas={upazilas}
               divisions={divisions}
-              rivers={rivers}
+              rivers={[]}
               selectedDivisionId={selectedTier === 'division' ? selectedId : null}
               selectedDistrictId={selectedTier === 'district' ? selectedId : null}
               selectedUpazilaId={selectedTier === 'upazila' ? selectedId : null}
               appliedDirections={[]}
               activeRiverIds={[]}
-              filterControls={mapLayerFilterControls}
               conquestMode={true}
               conqueredDivisionIds={conqueredDivisionSet}
               conqueredDistrictIds={conqueredDistrictSet}
               conqueredUpazilaIds={conqueredUpazilaSet}
-              requestedZoomPreset={requestedZoomPreset}
               focusBBoxRequest={focusBBoxRequest}
               lang={lang}
               theme={theme}
               onSelectDivision={handleMapSelectDivision}
               onSelectDistrict={handleMapSelectDistrict}
               onSelectUpazila={handleMapSelectUpazila}
+              onOpenHelp={() => setHelpOpen(true)}
               onResetView={() => {
                 setSelectedTier('division');
-                setSelectedId(defaultDivisionId);
+                setSelectedId(null);
               }}
             />
           </div>
 
-          {/* Right 5 Columns: Quick Search + Target Briefing Card */}
+          {/* Right 5 Columns: Quick Search (Desktop) / Progress Card (Mobile & Tablet) + Target Briefing Card */}
           <div className="lg:col-span-5 space-y-4">
-            {/* Search Box to Jump Directly to Any Division, District, or Upazila */}
-            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-2.5">
+            {/* Mobile & Tablet Conquest Progress Strip (Swapped into Search Bar's old position) */}
+            <div className="lg:hidden bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-2.5">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-display text-sm font-bold text-slate-900 dark:text-white inline-flex items-center gap-1.5">
+                  Conquer Bangladesh
+                </span>
+                <span className="font-mono-tabular font-bold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1 shrink-0">
+                  <Flag className="w-3.5 h-3.5" />
+                  <span>
+                    {formatNum(totalConquered, lang)}/{formatNum(totalTerritories, lang)} ({formatNum(totalPercent, lang)}%)
+                  </span>
+                </span>
+              </div>
+              <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-emerald-600 dark:bg-emerald-500 transition-all duration-300"
+                  style={{ width: `${Math.min(100, (totalConquered / Math.max(1, totalTerritories)) * 100)}%` }}
+                />
+              </div>
+              <div className="text-xs text-slate-500 dark:text-slate-400 font-mono-tabular flex flex-wrap items-center gap-x-2.5 gap-y-0.5">
+                <span>
+                  {lang === 'bn'
+                    ? `বিভাগ ${formatNum(conqueredDivisionSet.size, lang)}/${formatNum(divisions.length, lang)}`
+                    : `Div ${conqueredDivisionSet.size}/${divisions.length}`}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {lang === 'bn'
+                    ? `জেলা ${formatNum(conqueredDistrictSet.size, lang)}/${formatNum(districts.length, lang)}`
+                    : `Dist ${conqueredDistrictSet.size}/${districts.length}`}
+                </span>
+                <span aria-hidden="true">·</span>
+                <span>
+                  {lang === 'bn'
+                    ? `উপজেলা ${formatNum(conqueredUpazilaSet.size, lang)}/${formatNum(upazilas.length, lang)}`
+                    : `Upazila ${conqueredUpazilaSet.size}/${upazilas.length}`}
+                </span>
+              </div>
+            </div>
+
+            {/* Desktop Search Box to Jump Directly to Any Division, District, or Upazila (Unchanged on PC) */}
+            <div className="hidden lg:block bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-4 space-y-2.5">
               <label
                 htmlFor="conquest-target-search"
                 className="text-xs font-semibold text-slate-700 dark:text-slate-200 block"
@@ -891,169 +1018,184 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
             </div>
 
             {/* Selected Target Mission Briefing */}
-            {selectedTarget ? (
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 sm:p-6 space-y-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 space-y-1">
-                    <div className="text-xs font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
-                      <Target className="w-3.5 h-3.5" />
-                      <span>
-                        {selectedTarget.tier === 'division'
-                          ? lang === 'bn'
-                            ? 'বিভাগ অভিযান'
-                            : 'Division Conquest'
-                          : selectedTarget.tier === 'district'
-                          ? lang === 'bn'
-                            ? 'জেলা অভিযান'
-                            : 'District Conquest'
-                          : lang === 'bn'
-                          ? 'উপজেলা অভিযান'
-                          : 'Upazila Conquest'}
-                      </span>
-                    </div>
-                    <h2 className="font-display text-xl sm:text-2xl font-bold text-slate-900 dark:text-white leading-snug">
-                      {lang === 'bn'
-                        ? `${selectedTarget.nameBn}${
-                            selectedTarget.tier === 'division'
-                              ? ' বিভাগ'
-                              : selectedTarget.tier === 'district'
-                              ? ' জেলা'
-                              : ''
-                          }`
-                        : `${selectedTarget.nameEn}${
-                            selectedTarget.tier === 'division'
-                              ? ' Division'
-                              : selectedTarget.tier === 'district'
-                              ? ' District'
-                              : ''
-                          }`}
-                    </h2>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">
-                      {lang === 'bn'
-                        ? `${selectedTarget.nameEn} · ${selectedTarget.parentBn}`
-                        : `${selectedTarget.nameBn} · ${selectedTarget.parentEn}`}
-                    </p>
-                  </div>
-
-                  {/* Clean Miniature Vector Silhouette */}
-                  <div className="w-20 h-20 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-2 shrink-0 flex items-center justify-center">
-                    <svg viewBox={targetPreviewBox} className="w-full h-full">
-                      <path
-                        d={selectedTarget.svgPath}
-                        fill={selectedTargetRecord ? '#10B981' : '#2563EB'}
-                        stroke={selectedTargetRecord ? '#065F46' : '#1E3A8A'}
-                        strokeWidth="1.5"
-                        vectorEffect="non-scaling-stroke"
-                      />
-                    </svg>
-                  </div>
-                </div>
-
-                {/* Conquest Status Line */}
-                <div
-                  className={`p-3.5 rounded-lg border text-xs flex items-center justify-between gap-3 ${
-                    selectedTargetRecord
-                      ? 'bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
-                      : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    {selectedTargetRecord ? (
-                      <Trophy className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
-                    ) : (
-                      <MapPin className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-                    )}
-                    <div>
-                      <div className="font-semibold">
-                        {selectedTargetRecord
-                          ? lang === 'bn'
-                            ? 'অভিনন্দন! এই এলাকাটি ইতিমধ্যেই জয় করেছেন'
-                            : 'Territory Conquered'
-                          : lang === 'bn'
-                          ? 'এলাকাটি এখনো জয় করা হয়নি'
-                          : 'Ready to Conquer'}
-                      </div>
-                      {selectedTargetRecord && (
-                        <div className="text-[11px] opacity-80 font-mono-tabular mt-0.5">
-                          {lang === 'bn'
-                            ? `সর্বোচ্চ স্কোর: ${formatNum(selectedTargetRecord.bestScore ?? CHALLENGE_QUESTION_COUNT, lang)}/${formatNum(CHALLENGE_QUESTION_COUNT, lang)} · সেরা সময়: ${formatTimerClock(selectedTargetRecord.timeSec, lang)}`
-                            : `Best Score: ${selectedTargetRecord.bestScore ?? CHALLENGE_QUESTION_COUNT}/${CHALLENGE_QUESTION_COUNT} · Best Time: ${formatTimerClock(selectedTargetRecord.timeSec, lang)}`}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                  {selectedTargetRecord && (
+            <div ref={briefingCardRef} className="scroll-mt-20">
+              {selectedTarget ? (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 sm:p-6 space-y-5">
+                  <div className="flex items-center justify-between gap-2 lg:hidden">
                     <button
                       type="button"
-                      onClick={handleViewExistingPhotocard}
-                      className="px-2.5 py-1.5 rounded-md bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300 font-semibold hover:bg-emerald-100/60 dark:hover:bg-emerald-900/50 whitespace-nowrap shrink-0"
+                      onClick={scrollToMapOnMobileOrTablet}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-400 hover:underline"
                     >
-                      {lang === 'bn' ? 'ফটোকার্ড দেখুন' : 'Photocard'}
+                      <span>↑ {lang === 'bn' ? 'মানচিত্রে ফিরে যান' : 'Back to Map'}</span>
                     </button>
-                  )}
-                </div>
-
-                {/* Victory Conditions (3 Fixed Metrics) */}
-                <div className="grid grid-cols-3 gap-2.5 text-center">
-                  <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50">
-                    <div className="font-mono-tabular text-lg font-bold text-slate-900 dark:text-white">
-                      {formatNum(CHALLENGE_QUESTION_COUNT, lang)}
+                  </div>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 space-y-1">
+                      <div className="text-xs font-semibold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                        <Target className="w-3.5 h-3.5" />
+                        <span>
+                          {selectedTarget.tier === 'division'
+                            ? lang === 'bn'
+                              ? 'বিভাগ অভিযান'
+                              : 'Division Conquest'
+                            : selectedTarget.tier === 'district'
+                            ? lang === 'bn'
+                              ? 'জেলা অভিযান'
+                              : 'District Conquest'
+                            : lang === 'bn'
+                            ? 'উপজেলা অভিযান'
+                            : 'Upazila Conquest'}
+                        </span>
+                      </div>
+                      <h2 className="font-display text-xl sm:text-2xl font-bold text-slate-900 dark:text-white leading-snug">
+                        {lang === 'bn'
+                          ? `${selectedTarget.nameBn}${
+                              selectedTarget.tier === 'division'
+                                ? ' বিভাগ'
+                                : selectedTarget.tier === 'district'
+                                ? ' জেলা'
+                                : ''
+                            }`
+                          : `${selectedTarget.nameEn}${
+                              selectedTarget.tier === 'division'
+                                ? ' Division'
+                                : selectedTarget.tier === 'district'
+                                ? ' District'
+                                : ''
+                            }`}
+                      </h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400">
+                        {lang === 'bn'
+                          ? `${selectedTarget.nameEn} · ${selectedTarget.parentBn}`
+                          : `${selectedTarget.nameBn} · ${selectedTarget.parentEn}`}
+                      </p>
                     </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      {lang === 'bn' ? 'মোট প্রশ্ন' : 'Questions'}
+
+                    {/* Clean Miniature Vector Silhouette */}
+                    <div className="w-20 h-20 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 p-2 shrink-0 flex items-center justify-center">
+                      <svg viewBox={targetPreviewBox} className="w-full h-full">
+                        <path
+                          d={selectedTarget.svgPath}
+                          fill={selectedTargetRecord ? '#10B981' : '#2563EB'}
+                          stroke={selectedTargetRecord ? '#065F46' : '#1E3A8A'}
+                          strokeWidth="1.5"
+                          vectorEffect="non-scaling-stroke"
+                        />
+                      </svg>
                     </div>
                   </div>
-                  <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50">
-                    <div className="font-mono-tabular text-lg font-bold text-slate-900 dark:text-white">
-                      {lang === 'bn' ? '০৫:০০' : '05:00'}
+
+                  {/* Conquest Status Line */}
+                  <div
+                    className={`p-3.5 rounded-lg border text-xs flex items-center justify-between gap-3 ${
+                      selectedTargetRecord
+                        ? 'bg-emerald-50/70 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200'
+                        : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {selectedTargetRecord ? (
+                        <Trophy className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                      ) : (
+                        <MapPin className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                      )}
+                      <div>
+                        <div className="font-semibold">
+                          {selectedTargetRecord
+                            ? lang === 'bn'
+                              ? 'অভিনন্দন! এই এলাকাটি ইতিমধ্যেই জয় করেছেন'
+                              : 'Territory Conquered'
+                            : lang === 'bn'
+                            ? 'এলাকাটি এখনো জয় করা হয়নি'
+                            : 'Ready to Conquer'}
+                        </div>
+                        {selectedTargetRecord && (
+                          <div className="text-[11px] opacity-80 font-mono-tabular mt-0.5">
+                            {(() => {
+                              const recTotal = selectedTargetRecord.totalQuestions ?? targetRules.questionCount;
+                              const recScore = Math.min(recTotal, selectedTargetRecord.bestScore ?? recTotal);
+                              return lang === 'bn'
+                                ? `সর্বোচ্চ স্কোর: ${formatNum(recScore, lang)}/${formatNum(recTotal, lang)} · সেরা সময়: ${formatTimerClock(selectedTargetRecord.timeSec, lang)}`
+                                : `Best Score: ${recScore}/${recTotal} · Best Time: ${formatTimerClock(selectedTargetRecord.timeSec, lang)}`;
+                            })()}
+                          </div>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      {lang === 'bn' ? 'সর্বোচ্চ সময়' : 'Time Limit'}
+                    {selectedTargetRecord && (
+                      <button
+                        type="button"
+                        onClick={handleViewExistingPhotocard}
+                        className="px-2.5 py-1.5 rounded-md bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 text-emerald-800 dark:text-emerald-300 font-semibold hover:bg-emerald-100/60 dark:hover:bg-emerald-900/50 whitespace-nowrap shrink-0"
+                      >
+                        {lang === 'bn' ? 'ফটোকার্ড দেখুন' : 'Photocard'}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Victory Conditions (Dynamic per Territory Tier) */}
+                  <div className="grid grid-cols-3 gap-2.5 text-center">
+                    <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50">
+                      <div className="font-mono-tabular text-lg font-bold text-slate-900 dark:text-white">
+                        {formatNum(targetRules.questionCount, lang)}
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        {lang === 'bn' ? 'মোট প্রশ্ন' : 'Questions'}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50">
+                      <div className="font-mono-tabular text-lg font-bold text-slate-900 dark:text-white">
+                        {lang === 'bn' ? targetRules.clockBn : targetRules.clockEn}
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        {lang === 'bn' ? 'সর্বোচ্চ সময়' : 'Time Limit'}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50">
+                      <div className="font-mono-tabular text-lg font-bold text-emerald-700 dark:text-emerald-400">
+                        {formatNum(targetRules.questionCount, lang)}/{formatNum(targetRules.questionCount, lang)}
+                      </div>
+                      <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                        {lang === 'bn' ? '১০০% সঠিক উত্তর' : '100% Accuracy'}
+                      </div>
                     </div>
                   </div>
-                  <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/50">
-                    <div className="font-mono-tabular text-lg font-bold text-emerald-700 dark:text-emerald-400">
-                      {formatNum(MIN_CORRECT_TO_CONQUER, lang)}/{formatNum(CHALLENGE_QUESTION_COUNT, lang)}
-                    </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                      {lang === 'bn' ? 'ন্যূনতম সঠিক উত্তর' : 'Pass Score'}
-                    </div>
+
+                  <div className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed flex items-start gap-2">
+                    <ShieldCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
+                    <span>
+                      {lang === 'bn'
+                        ? `${targetRules.minutesBn} মিনিটের মধ্যে ${formatNum(targetRules.questionCount, lang)}টি প্রশ্নের সবগুলোর (${formatNum(targetRules.questionCount, lang)}/${formatNum(targetRules.questionCount, lang)}) সঠিক উত্তর দিলে এলাকাটি মানচিত্রে সবুজ চিহ্নে যুক্ত হবে এবং শেয়ারযোগ্য ফটোকার্ড পাবেন।`
+                        : `Answer all ${targetRules.questionCount} questions correctly (100% accuracy) within ${targetRules.minutesEn} minutes to mark this area emerald on your map and unlock a downloadable shareable photocard.`}
+                    </span>
                   </div>
-                </div>
 
-                <div className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed flex items-start gap-2">
-                  <ShieldCheck className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0 mt-0.5" />
-                  <span>
-                    {lang === 'bn'
-                      ? '৫ মিনিটের মধ্যে ৩০টি প্রশ্নের কমপক্ষে ৩টি (৩/৩০) সঠিক হলে এলাকাটি মানচিত্রে সবুজ চিহ্নে যুক্ত হবে এবং শেয়ারযোগ্য ফটোকার্ড পাবেন।'
-                      : 'Answer at least 3 of 30 questions correctly within 5 minutes to mark this area emerald on your map and unlock a downloadable shareable photocard.'}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={handleStartConquest}
+                    className="w-full py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-semibold text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                  >
+                    <Flag className="w-4 h-4" />
+                    <span>
+                      {selectedTargetRecord
+                        ? lang === 'bn'
+                          ? 'আবার চ্যালেঞ্জ খেলুন'
+                          : 'Replay Conquest Challenge'
+                        : lang === 'bn'
+                        ? `জয় অভিযান শুরু করুন (${formatNum(targetRules.questionCount, lang)} প্রশ্ন · ${targetRules.minutesBn} মি.)`
+                        : `Start Conquest (${targetRules.questionCount} Questions · ${targetRules.minutesEn}m)`}
+                    </span>
+                  </button>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={handleStartConquest}
-                  className="w-full py-3 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white font-semibold text-sm flex items-center justify-center gap-2 transition-colors cursor-pointer"
-                >
-                  <Flag className="w-4 h-4" />
-                  <span>
-                    {selectedTargetRecord
-                      ? lang === 'bn'
-                        ? 'আবার চ্যালেঞ্জ খেলুন'
-                        : 'Replay Conquest Challenge'
-                      : lang === 'bn'
-                      ? 'জয় অভিযান শুরু করুন (৩০ প্রশ্ন · ৫ মি.)'
-                      : 'Start Conquest (30 Questions · 5m)'}
-                  </span>
-                </button>
-              </div>
-            ) : (
-              <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                {lang === 'bn'
-                  ? 'বাম পাশের মানচিত্র থেকে একটি বিভাগ, জেলা বা উপজেলা নির্বাচন করুন।'
-                  : 'Select a Division, District, or Upazila on the map to begin.'}
-              </div>
-            )}
+              ) : (
+                <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                  {lang === 'bn'
+                    ? 'মানচিত্র থেকে একটি বিভাগ, জেলা বা উপজেলা নির্বাচন করুন।'
+                    : 'Select a Division, District, or Upazila on the map to begin.'}
+                </div>
+              )}
+            </div>
 
             {/* Recently Conquered Areas */}
             {totalConquered > 0 && (
@@ -1125,11 +1267,12 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
                 </div>
               </div>
             )}
+
           </div>
         </section>
       )}
 
-      {/* STAGE 2: ACTIVE 5-MINUTE / 30-QUESTION CONQUEST CHALLENGE */}
+      {/* STAGE 2: ACTIVE CONQUEST CHALLENGE */}
       {stage === 'active' && currentQuestion && selectedTarget && (
         <section className="max-w-4xl mx-auto space-y-4">
           {/* Mission HUD Header */}
@@ -1137,8 +1280,8 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
             <div className="min-w-0">
               <div className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
                 {lang === 'bn'
-                  ? 'অভিযান চলমান · কমপক্ষে ৩/৩০ সঠিক উত্তর প্রয়োজন'
-                  : 'Conquest In Progress · At least 3/30 Correct Required'}
+                  ? `অভিযান চলমান · ${formatNum(questions.length || targetRules.questionCount, lang)}/${formatNum(questions.length || targetRules.questionCount, lang)} (১০০%) সঠিক উত্তর প্রয়োজন`
+                  : `Conquest In Progress · ${questions.length || targetRules.questionCount}/${questions.length || targetRules.questionCount} (100% Accuracy) Required`}
               </div>
               <div className="font-display text-lg font-bold text-slate-900 dark:text-white truncate mt-0.5">
                 {lang === 'bn'
@@ -1225,8 +1368,8 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
               </span>
               <span>
                 {lang === 'bn'
-                  ? `অতিক্রান্ত সময়: ${formatTimerClock(CHALLENGE_DURATION_SEC - remainingSec, lang)}`
-                  : `Elapsed: ${formatTimerClock(CHALLENGE_DURATION_SEC - remainingSec, lang)}`}
+                  ? `অতিক্রান্ত সময়: ${formatTimerClock(targetRules.durationSec - remainingSec, lang)}`
+                  : `Elapsed: ${formatTimerClock(targetRules.durationSec - remainingSec, lang)}`}
               </span>
             </div>
 
@@ -1296,7 +1439,7 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
                 type="button"
                 disabled={answeredCount < questions.length}
                 onClick={() =>
-                  finishChallenge(answers, false, CHALLENGE_DURATION_SEC - remainingSec)
+                  finishChallenge(answers, false, targetRules.durationSec - remainingSec)
                 }
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white text-xs font-semibold disabled:opacity-45 disabled:cursor-not-allowed transition-colors"
               >
@@ -1347,21 +1490,34 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
                     {selectedTarget.nameEn} · {selectedTarget.nameBn}
                   </div>
                 </div>
-                <div className="flex-1 flex items-center justify-center py-6">
-                  <svg viewBox={targetPreviewBox} className="w-56 h-56">
-                    <path
-                      d={selectedTarget.svgPath}
-                      fill="#10B981"
-                      stroke="#064E3B"
-                      strokeWidth="2.5"
-                      vectorEffect="non-scaling-stroke"
-                    />
-                  </svg>
+                <div className="flex-1 flex items-center justify-center py-6 relative border border-slate-200 bg-white rounded-xl my-3 overflow-hidden">
+                  <div className="w-56 h-56 rounded-full bg-emerald-500/5 border border-emerald-500/10 flex items-center justify-center">
+                    <svg viewBox={targetPreviewBox} className="w-48 h-48">
+                      <path
+                        d={selectedTarget.svgPath}
+                        fill="#10B981"
+                        stroke="#064E3B"
+                        strokeWidth="2.5"
+                        vectorEffect="non-scaling-stroke"
+                      />
+                    </svg>
+                  </div>
+                  <div className="absolute inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-emerald-950/90 border border-emerald-400 text-white text-sm font-bold shadow-md pointer-events-none select-none">
+                    <MapPin className="w-3.5 h-3.5 text-white shrink-0" />
+                    <span>
+                      {selectedTarget.nameEn}
+                      {selectedTarget.tier === 'district'
+                        ? ' District'
+                        : selectedTarget.tier === 'division'
+                        ? ' Division'
+                        : ''}
+                    </span>
+                  </div>
                 </div>
                 <div className="border-t border-slate-200 pt-4 flex items-center justify-between text-xs text-slate-600 font-mono-tabular">
                   <span>{playerName.trim() || 'Bangladesh Explorer'}</span>
                   <span>
-                    {lastCorrectCount} / {CHALLENGE_QUESTION_COUNT} · {accuracyPct}% ACCURACY
+                    {lastCorrectCount} / {activeTotalQuestions} · {accuracyPct}% ACCURACY
                   </span>
                 </div>
               </div>
@@ -1382,8 +1538,8 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
 
               <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
                 {lang === 'bn'
-                  ? `অভিনন্দন! আপনি ${formatTimerClock(completionSec, lang)} সময়ে ${formatNum(lastCorrectCount, lang)}/${formatNum(CHALLENGE_QUESTION_COUNT, lang)} (${formatNum(accuracyPct, lang)}% সঠিকতা) স্কোর করে এলাকাটি জয় করেছেন।`
-                  : `Congratulations! You conquered this territory scoring ${lastCorrectCount}/${CHALLENGE_QUESTION_COUNT} (${accuracyPct}% accuracy) in ${formatTimerClock(completionSec, 'en')}.`}
+                  ? `অভিনন্দন! আপনি ${formatTimerClock(completionSec, lang)} সময়ে ${formatNum(lastCorrectCount, lang)}/${formatNum(activeTotalQuestions, lang)} (${formatNum(accuracyPct, lang)}% সঠিকতা) স্কোর করে এলাকাটি জয় করেছেন।`
+                  : `Congratulations! You conquered this territory scoring ${lastCorrectCount}/${activeTotalQuestions} (${accuracyPct}% accuracy) in ${formatTimerClock(completionSec, 'en')}.`}
               </p>
 
               {/* Optional Name Update for Photocard Signature */}
@@ -1420,6 +1576,7 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
                         completionSec,
                         selectedTargetRecord?.conqueredAt || Date.now(),
                         lastCorrectCount,
+                        activeTotalQuestions,
                         playerName
                       )
                     }
@@ -1525,8 +1682,8 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
                 >
                   <span>
                     {lang === 'bn'
-                      ? '৩০টি প্রশ্নের উত্তর পর্যালোচনা'
-                      : 'Review All 30 Questions'}
+                      ? `${formatNum(questions.length, lang)}টি প্রশ্নের উত্তর পর্যালোচনা`
+                      : `Review All ${questions.length} Questions`}
                   </span>
                   <span>{reviewExpanded ? '−' : '+'}</span>
                 </button>
@@ -1567,11 +1724,11 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
                   <span>
                     {timedOut
                       ? lang === 'bn'
-                        ? 'সময় শেষ হয়েছে (০৫:০০)'
-                        : 'Time Expired (05:00)'
+                        ? `সময় শেষ হয়েছে (${targetRules.clockBn})`
+                        : `Time Expired (${targetRules.clockEn})`
                       : lang === 'bn'
-                      ? 'ন্যূনতম ৩টি সঠিক উত্তর অর্জিত হয়নি'
-                      : 'Minimum 3/30 Correct Answers Not Reached'}
+                      ? `${formatNum(targetRules.questionCount, lang)}টি প্রশ্নের সবগুলোর (১০০%) সঠিক উত্তর অর্জিত হয়নি`
+                      : `100% Accuracy (${targetRules.questionCount}/${targetRules.questionCount}) Not Reached`}
                   </span>
                 </div>
                 <h2 className="font-display text-2xl font-bold text-slate-900 dark:text-white">
@@ -1581,8 +1738,8 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
                 </h2>
                 <p className="text-sm text-slate-600 dark:text-slate-400">
                   {lang === 'bn'
-                    ? 'জয় করার জন্য ৫ মিনিটের মধ্যে ৩০টি প্রশ্নের মধ্যে কমপক্ষে ৩টি (৩/৩০) সঠিক উত্তর দিতে হবে। নিচে ভুলগুলো দেখে আবার চেষ্টা করুন।'
-                    : 'At least 3 out of 30 questions must be answered correctly within 5 minutes to conquer this territory.'}
+                    ? `জয় করার জন্য ${targetRules.minutesBn} মিনিটের মধ্যে ${formatNum(targetRules.questionCount, lang)}টি প্রশ্নের সবগুলোর (১০০%) সঠিক উত্তর দিতে হবে। নিচে ভুলগুলো দেখে আবার চেষ্টা করুন।`
+                    : `All ${targetRules.questionCount} questions must be answered correctly (100% accuracy) within ${targetRules.minutesEn} minutes to conquer this territory.`}
                 </p>
               </div>
 
@@ -1609,7 +1766,11 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white text-sm font-semibold"
               >
                 <RotateCcw className="w-4 h-4" />
-                <span>{lang === 'bn' ? 'আবার ৩০ প্রশ্নের চ্যালেঞ্জ দিন' : 'Retry Conquest Challenge'}</span>
+                <span>
+                  {lang === 'bn'
+                    ? `আবার ${formatNum(targetRules.questionCount, lang)} প্রশ্নের চ্যালেঞ্জ দিন`
+                    : 'Retry Conquest Challenge'}
+                </span>
               </button>
               <button
                 type="button"
@@ -1684,6 +1845,120 @@ export const ConquerBangladeshPage: React.FC<ConquerBangladeshPageProps> = ({
             </div>
           </div>
         </section>
+      )}
+
+      {/* Conquer Bangladesh Help Modal */}
+      {helpOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/50 backdrop-blur-xs"
+          onClick={() => setHelpOpen(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="conquest-help-title"
+        >
+          <div
+            className="w-full max-w-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <HelpCircle className="w-4 h-4 text-emerald-700 dark:text-emerald-400 shrink-0" />
+                <h2
+                  id="conquest-help-title"
+                  className="font-display text-base font-bold text-slate-900 dark:text-white"
+                >
+                  {lang === 'bn'
+                    ? 'Conquer Bangladesh ব্যবহার নির্দেশিকা'
+                    : 'How Conquer Bangladesh Works'}
+                </h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHelpOpen(false)}
+                aria-label={lang === 'bn' ? 'বন্ধ করুন' : 'Close'}
+                className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3.5 text-xs sm:text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
+              <div className="flex items-start gap-3">
+                <span className="w-5 h-5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-mono-tabular font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
+                  {formatNum(1, lang)}
+                </span>
+                <div>
+                  <div className="font-semibold text-slate-900 dark:text-white">
+                    {lang === 'bn' ? 'লক্ষ্য এলাকা নির্বাচন ও জুম' : 'Zoom & Select a Territory'}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {lang === 'bn'
+                      ? 'প্রথমে মানচিত্রে ৮টি বিভাগ দেখা যাবে। মানচিত্রের নির্দিষ্ট স্থানে জুম (+) বা চিমটি করলে প্রথমে ৬৪টি জেলা এবং আরও জুম করলে ৫৪৪টি উপজেলা খুলে যাবে। যেকোনো বিভাগ, জেলা বা উপজেলায় ক্লিক করলে (অথবা উপরের সার্চ বারে নাম লিখলে) সরাসরি সেটির অভিযান কার্ড ওপেন হবে।'
+                      : 'The map opens with 8 Divisions—zoom in (+) or pinch an area to reveal 64 Districts, and zoom further to unlock 544 Upazilas. Tap any Division, District, or Upazila (or search by name above) to jump straight to its conquest briefing.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <span className="w-5 h-5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-mono-tabular font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
+                  {formatNum(2, lang)}
+                </span>
+                <div>
+                  <div className="font-semibold text-slate-900 dark:text-white">
+                    {lang === 'bn' ? 'জয়ের শর্ত (১০০% সঠিক উত্তর)' : 'Victory Rules (100% Accuracy)'}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {lang === 'bn'
+                      ? 'উপজেলা জয়ে ৩ মিনিটে ২০টি প্রশ্নের ২০টিই, আর জেলা বা বিভাগ জয়ে ৫ মিনিটে ৩০টি প্রশ্নের ৩০টিই সঠিক হতে হবে।'
+                      : 'Answer 20/20 questions within 3 minutes for Upazilas, or 30/30 within 5 minutes for Districts & Divisions.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <span className="w-5 h-5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-mono-tabular font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
+                  {formatNum(3, lang)}
+                </span>
+                <div>
+                  <div className="font-semibold text-slate-900 dark:text-white">
+                    {lang === 'bn' ? 'সবুজ রঙে মানচিত্র জয়' : 'Turn the Map Emerald'}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {lang === 'bn'
+                      ? 'সফল হলে এলাকাটি মানচিত্রে স্থায়ীভাবে সবুজ চিহ্নে যুক্ত হবে এবং আপনার মোট অগ্রগতি বাড়বে।'
+                      : 'Conquered areas turn emerald green permanently on your map and count toward your 616-territory progress.'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-3">
+                <span className="w-5 h-5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 font-mono-tabular font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5">
+                  {formatNum(4, lang)}
+                </span>
+                <div>
+                  <div className="font-semibold text-slate-900 dark:text-white">
+                    {lang === 'bn' ? 'ফটোকার্ড সংগ্রহ ও শেয়ার' : 'Download & Share Photocard'}
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                    {lang === 'bn'
+                      ? 'প্রতিটি জয়ের পর আপনার নাম ও সময়সহ একটি ক্লিন ফটোকার্ড পাবেন, যা PNG হিসেবে ডাউনলোড বা শেয়ার করা যাবে।'
+                      : 'Unlock a personalized victory photocard with your name, accuracy, and time to download as PNG or share.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-3 bg-slate-50 dark:bg-slate-950/50 border-t border-slate-200 dark:border-slate-800 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setHelpOpen(false)}
+                className="px-4 py-2 rounded-lg bg-emerald-700 hover:bg-emerald-800 dark:bg-emerald-600 dark:hover:bg-emerald-700 text-white text-xs font-semibold transition-colors cursor-pointer"
+              >
+                {lang === 'bn' ? 'বুঝেছি' : 'Got it'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

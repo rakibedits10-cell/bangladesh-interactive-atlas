@@ -1,4 +1,14 @@
-export type DirectionZone = 'all' | 'north' | 'south' | 'east' | 'west' | 'central';
+export type DirectionZone =
+  | 'all'
+  | 'north'
+  | 'south'
+  | 'east'
+  | 'west'
+  | 'central'
+  | 'northeast'
+  | 'northwest'
+  | 'southeast'
+  | 'southwest';
 
 export interface DivisionMeta {
   id: string;
@@ -581,7 +591,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '2': {
     id: '2',
-    directions: ['central', 'west'],
+    directions: ['central', 'west', 'southwest'],
     directionLabelBn: 'মধ্য-দক্ষিণ-পশ্চিমাঞ্চল',
     directionLabelEn: 'South-Central Bangladesh',
     areaKm2: 2053,
@@ -653,7 +663,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '4': {
     id: '4',
-    directions: ['south', 'central'],
+    directions: ['south', 'central', 'southwest'],
     directionLabelBn: 'দক্ষিণ-মধ্যাঞ্চল',
     directionLabelEn: 'South-Central Bangladesh',
     areaKm2: 1490,
@@ -725,7 +735,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '6': {
     id: '6',
-    directions: ['central', 'east'],
+    directions: ['central', 'east', 'northeast'],
     directionLabelBn: 'উত্তর-পূর্ব ও মধ্যাঞ্চল',
     directionLabelEn: 'East-Central Haor Region',
     areaKm2: 2689,
@@ -977,7 +987,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '13': {
     id: '13',
-    directions: ['north', 'east'],
+    directions: ['north', 'east', 'northeast'],
     directionLabelBn: 'উত্তর-পূর্ব সীমান্ত ও হাওরাঞ্চল',
     directionLabelEn: 'North-Central Border & Haor',
     areaKm2: 2794,
@@ -1157,7 +1167,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '18': {
     id: '18',
-    directions: ['north'],
+    directions: ['north', 'northwest'],
     directionLabelBn: 'উত্তরাঞ্চল (উত্তরবঙ্গ)',
     directionLabelEn: 'Northern Bangladesh',
     areaKm2: 2899,
@@ -1193,7 +1203,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '19': {
     id: '19',
-    directions: ['north', 'west'],
+    directions: ['north', 'west', 'northwest'],
     directionLabelBn: 'উত্তর-পশ্চিমাঞ্চল',
     directionLabelEn: 'Northwestern Bangladesh',
     areaKm2: 1012,
@@ -1229,7 +1239,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '20': {
     id: '20',
-    directions: ['north', 'west'],
+    directions: ['north', 'west', 'northwest'],
     directionLabelBn: 'উত্তর-পশ্চিমাঞ্চল',
     directionLabelEn: 'Northwestern Bangladesh',
     areaKm2: 3436,
@@ -1265,7 +1275,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '21': {
     id: '21',
-    directions: ['north', 'west'],
+    directions: ['north', 'west', 'northwest'],
     directionLabelBn: 'উত্তর-পশ্চিমাঞ্চল',
     directionLabelEn: 'Northwestern Bangladesh',
     areaKm2: 1900,
@@ -1301,7 +1311,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '22': {
     id: '22',
-    directions: ['north', 'west'],
+    directions: ['north', 'west', 'northwest'],
     directionLabelBn: 'সর্ব-পশ্চিম ও উত্তর-পশ্চিমাঞ্চল',
     directionLabelEn: 'Westernmost Bangladesh',
     areaKm2: 1703,
@@ -1337,7 +1347,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '23': {
     id: '23',
-    directions: ['north', 'west'],
+    directions: ['north', 'west', 'northwest'],
     directionLabelBn: 'মধ্য-পশ্চিমাঞ্চল',
     directionLabelEn: 'West-Central Bangladesh',
     areaKm2: 2376,
@@ -1373,7 +1383,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '24': {
     id: '24',
-    directions: ['north', 'west'],
+    directions: ['north', 'west', 'northwest'],
     directionLabelBn: 'উত্তর-পশ্চিমাঞ্চল',
     directionLabelEn: 'Northwestern Bangladesh',
     areaKm2: 2425,
@@ -1409,7 +1419,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '25': {
     id: '25',
-    directions: ['north', 'central'],
+    directions: ['north', 'central', 'northwest'],
     directionLabelBn: 'উত্তর-মধ্যাঞ্চল',
     directionLabelEn: 'North-Central Bangladesh',
     areaKm2: 2402,
@@ -1445,7 +1455,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '26': {
     id: '26',
-    directions: ['north', 'west'],
+    directions: ['north', 'west', 'northwest'],
     directionLabelBn: 'উত্তরাঞ্চল (উত্তর-পশ্চিম)',
     directionLabelEn: 'Northwestern Bangladesh',
     areaKm2: 3444,
@@ -1481,7 +1491,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '27': {
     id: '27',
-    directions: ['north'],
+    directions: ['north', 'northwest'],
     directionLabelBn: 'উত্তরাঞ্চল',
     directionLabelEn: 'Northern Bangladesh',
     areaKm2: 2115,
@@ -1517,7 +1527,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '28': {
     id: '28',
-    directions: ['north'],
+    directions: ['north', 'northwest'],
     directionLabelBn: 'উত্তর-পূর্বাঞ্চল (উত্তরবঙ্গ)',
     directionLabelEn: 'Far Northeastern North Bengal',
     areaKm2: 2245,
@@ -1553,7 +1563,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '29': {
     id: '29',
-    directions: ['north'],
+    directions: ['north', 'northwest'],
     directionLabelBn: 'উত্তর সীমান্ত অঞ্চল',
     directionLabelEn: 'Northern Border Region',
     areaKm2: 1247,
@@ -1589,7 +1599,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '30': {
     id: '30',
-    directions: ['north'],
+    directions: ['north', 'northwest'],
     directionLabelBn: 'উত্তরাঞ্চল',
     directionLabelEn: 'Northern Bangladesh',
     areaKm2: 1547,
@@ -1625,7 +1635,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '31': {
     id: '31',
-    directions: ['north', 'west'],
+    directions: ['north', 'west', 'northwest'],
     directionLabelBn: 'সর্বোত্তরের জেলা (হিমালয় পাদদেশ)',
     directionLabelEn: 'Northernmost District of Bangladesh',
     areaKm2: 1405,
@@ -1661,7 +1671,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '32': {
     id: '32',
-    directions: ['north'],
+    directions: ['north', 'northwest'],
     directionLabelBn: 'উত্তরাঞ্চল',
     directionLabelEn: 'Northern Bangladesh',
     areaKm2: 2401,
@@ -1697,7 +1707,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '33': {
     id: '33',
-    directions: ['north', 'west'],
+    directions: ['north', 'west', 'northwest'],
     directionLabelBn: 'উত্তর-পশ্চিমাঞ্চল',
     directionLabelEn: 'Northwestern Border Region',
     areaKm2: 1782,
@@ -1733,7 +1743,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '34': {
     id: '34',
-    directions: ['south'],
+    directions: ['south', 'southwest'],
     directionLabelBn: 'সর্বদক্ষিণ উপকূলীয় অঞ্চল',
     directionLabelEn: 'Southern Coastal Bangladesh',
     areaKm2: 1831,
@@ -1913,7 +1923,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '39': {
     id: '39',
-    directions: ['south'],
+    directions: ['south', 'southwest'],
     directionLabelBn: 'দক্ষিণ-পশ্চিম উপকূলীয় অঞ্চল',
     directionLabelEn: 'Southwestern Coastal Region',
     areaKm2: 1278,
@@ -1949,7 +1959,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '40': {
     id: '40',
-    directions: ['south', 'east'],
+    directions: ['south', 'east', 'southeast'],
     directionLabelBn: 'দক্ষিণ-পূর্বাঞ্চল (পার্বত্য অঞ্চল)',
     directionLabelEn: 'Southeastern Hill Tracts',
     areaKm2: 4479,
@@ -2021,7 +2031,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '42': {
     id: '42',
-    directions: ['south', 'east'],
+    directions: ['south', 'east', 'southeast'],
     directionLabelBn: 'দক্ষিণ-পূর্বাঞ্চল',
     directionLabelEn: 'Southeastern River Confluence',
     areaKm2: 1645,
@@ -2057,7 +2067,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '43': {
     id: '43',
-    directions: ['south', 'east'],
+    directions: ['south', 'east', 'southeast'],
     directionLabelBn: 'দক্ষিণ-পূর্বাঞ্চল (বাণিজ্যিক রাজধানী)',
     directionLabelEn: 'Southeastern Commercial Capital',
     areaKm2: 5283,
@@ -2093,7 +2103,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '44': {
     id: '44',
-    directions: ['east'],
+    directions: ['east', 'southeast'],
     directionLabelBn: 'পূর্বাঞ্চল',
     directionLabelEn: 'Eastern Bangladesh',
     areaKm2: 3146,
@@ -2129,7 +2139,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '45': {
     id: '45',
-    directions: ['south', 'east'],
+    directions: ['south', 'east', 'southeast'],
     directionLabelBn: 'সর্বদক্ষিণ-পূর্বাঞ্চল (উপকূল)',
     directionLabelEn: 'Southeasternmost Coastal District',
     areaKm2: 2492,
@@ -2165,7 +2175,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '46': {
     id: '46',
-    directions: ['south', 'east'],
+    directions: ['south', 'east', 'southeast'],
     directionLabelBn: 'দক্ষিণ-পূর্বাঞ্চল',
     directionLabelEn: 'Southeastern Border Corridor',
     areaKm2: 990,
@@ -2201,7 +2211,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '47': {
     id: '47',
-    directions: ['east', 'south'],
+    directions: ['east', 'south', 'southeast'],
     directionLabelBn: 'দক্ষিণ-পূর্বাঞ্চল (পার্বত্য অঞ্চল)',
     directionLabelEn: 'Southeastern Hill District',
     areaKm2: 2749,
@@ -2237,7 +2247,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '48': {
     id: '48',
-    directions: ['south', 'east'],
+    directions: ['south', 'east', 'southeast'],
     directionLabelBn: 'দক্ষিণ-পূর্বাঞ্চল',
     directionLabelEn: 'Southeastern Coastal Delta',
     areaKm2: 1440,
@@ -2273,7 +2283,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '49': {
     id: '49',
-    directions: ['south', 'east'],
+    directions: ['south', 'east', 'southeast'],
     directionLabelBn: 'দক্ষিণ উপকূলীয় অঞ্চল',
     directionLabelEn: 'Southeastern Coastal Region',
     areaKm2: 3686,
@@ -2309,7 +2319,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '50': {
     id: '50',
-    directions: ['east', 'south'],
+    directions: ['east', 'south', 'southeast'],
     directionLabelBn: 'দক্ষিণ-পূর্বাঞ্চল (পার্বত্য অঞ্চল)',
     directionLabelEn: 'Southeastern Hill District',
     areaKm2: 6116,
@@ -2345,7 +2355,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '51': {
     id: '51',
-    directions: ['east', 'north'],
+    directions: ['east', 'north', 'northeast'],
     directionLabelBn: 'উত্তর-পূর্বাঞ্চল',
     directionLabelEn: 'Northeastern Bangladesh',
     areaKm2: 2637,
@@ -2381,7 +2391,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '52': {
     id: '52',
-    directions: ['east', 'north'],
+    directions: ['east', 'north', 'northeast'],
     directionLabelBn: 'সর্ব-পূর্বাঞ্চল (চা অঞ্চল)',
     directionLabelEn: 'Northeastern Tea Capital',
     areaKm2: 2799,
@@ -2417,7 +2427,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '53': {
     id: '53',
-    directions: ['north', 'east'],
+    directions: ['north', 'east', 'northeast'],
     directionLabelBn: 'উত্তর-পূর্বাঞ্চল (হাওরের রাজধানী)',
     directionLabelEn: 'Northeastern Haor Basin',
     areaKm2: 3747,
@@ -2453,7 +2463,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '54': {
     id: '54',
-    directions: ['east', 'north'],
+    directions: ['east', 'north', 'northeast'],
     directionLabelBn: 'উত্তর-পূর্বাঞ্চল',
     directionLabelEn: 'Northeastern Bangladesh',
     areaKm2: 3452,
@@ -2489,7 +2499,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '55': {
     id: '55',
-    directions: ['south', 'west'],
+    directions: ['south', 'west', 'southwest'],
     directionLabelBn: 'দক্ষিণ-পশ্চিমাঞ্চল (উপকূল)',
     directionLabelEn: 'Southwestern Coastal Region',
     areaKm2: 3959,
@@ -2525,7 +2535,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '56': {
     id: '56',
-    directions: ['west'],
+    directions: ['west', 'southwest'],
     directionLabelBn: 'পশ্চিমাঞ্চল',
     directionLabelEn: 'Western Bangladesh',
     areaKm2: 1174,
@@ -2561,7 +2571,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '57': {
     id: '57',
-    directions: ['west', 'south'],
+    directions: ['west', 'south', 'southwest'],
     directionLabelBn: 'দক্ষিণ-পশ্চিমাঞ্চল',
     directionLabelEn: 'Southwestern Bangladesh',
     areaKm2: 2607,
@@ -2597,7 +2607,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '58': {
     id: '58',
-    directions: ['west'],
+    directions: ['west', 'southwest'],
     directionLabelBn: 'দক্ষিণ-পশ্চিমাঞ্চল',
     directionLabelEn: 'Southwestern Bangladesh',
     areaKm2: 1965,
@@ -2633,7 +2643,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '59': {
     id: '59',
-    directions: ['south', 'west'],
+    directions: ['south', 'west', 'southwest'],
     directionLabelBn: 'দক্ষিণ-পশ্চিমাঞ্চল',
     directionLabelEn: 'Southwestern Divisional Capital',
     areaKm2: 4394,
@@ -2669,7 +2679,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '60': {
     id: '60',
-    directions: ['west'],
+    directions: ['west', 'southwest'],
     directionLabelBn: 'পশ্চিমাঞ্চল',
     directionLabelEn: 'Western Bangladesh',
     areaKm2: 1609,
@@ -2705,7 +2715,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '61': {
     id: '61',
-    directions: ['west', 'central'],
+    directions: ['west', 'central', 'southwest'],
     directionLabelBn: 'দক্ষিণ-পশ্চিমাঞ্চল',
     directionLabelEn: 'West-Central Bangladesh',
     areaKm2: 1039,
@@ -2741,7 +2751,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '62': {
     id: '62',
-    directions: ['west'],
+    directions: ['west', 'southwest'],
     directionLabelBn: 'সর্ব-পশ্চিমাঞ্চল',
     directionLabelEn: 'Westernmost Bangladesh',
     areaKm2: 752,
@@ -2777,7 +2787,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '63': {
     id: '63',
-    directions: ['west', 'south'],
+    directions: ['west', 'south', 'southwest'],
     directionLabelBn: 'দক্ষিণ-পশ্চিমাঞ্চল',
     directionLabelEn: 'Southwestern Bangladesh',
     areaKm2: 968,
@@ -2813,7 +2823,7 @@ export const DISTRICT_DETAILS: Record<string, DistrictDetail> = {
   },
   '64': {
     id: '64',
-    directions: ['south', 'west'],
+    directions: ['south', 'west', 'southwest'],
     directionLabelBn: 'দক্ষিণ-পশ্চিম উপকূলীয় সীমান্ত',
     directionLabelEn: 'Southwesternmost Coastal Border',
     areaKm2: 3817,
@@ -2900,5 +2910,33 @@ export const DIRECTION_INFO: Record<
     labelEn: 'Central',
     descBn: 'রাজধানী ঢাকা ও পার্শ্ববর্তী গাজীপুর, নারায়ণগঞ্জ, মুন্সিগঞ্জ, মানিকগঞ্জ, টাঙ্গাইল, ফরিদপুর ও ময়মনসিংহ অঞ্চল।',
     descEn: 'Central heartland around capital Dhaka, including Gazipur, Narayanganj, Munshiganj, Tangail, Faridpur, and Mymensingh.',
+  },
+  northeast: {
+    key: 'northeast',
+    labelBn: 'উত্তর-পূর্বাঞ্চল',
+    labelEn: 'North-East',
+    descBn: 'সিলেট বিভাগের চার জেলা ও বৃহত্তর হাওরাঞ্চল—সিলেট, সুনামগঞ্জ, মৌলভীবাজার, হবিগঞ্জ এবং নেত্রকোনা ও কিশোরগঞ্জ।',
+    descEn: 'Northeastern Bangladesh spanning Sylhet Division’s tea valleys and the haor wetland basin across Sunamganj, Netrokona, and Kishoreganj.',
+  },
+  northwest: {
+    key: 'northwest',
+    labelBn: 'উত্তর-পশ্চিমাঞ্চল',
+    labelEn: 'North-West',
+    descBn: 'উত্তরবঙ্গের রাজশাহী ও রংপুর বিভাগের ১৬টি জেলা—বরেন্দ্রভূমি, পদ্মা-যমুনা-তিস্তা অববাহিকা ও হিমালয় পাদদেশ।',
+    descEn: 'Northwestern Bangladesh spanning all 16 districts of Rajshahi and Rangpur divisions across the Barind Tract and Teesta–Padma plains.',
+  },
+  southeast: {
+    key: 'southeast',
+    labelBn: 'দক্ষিণ-পূর্বাঞ্চল',
+    labelEn: 'South-East',
+    descBn: 'বন্দরনগরী চট্টগ্রাম, কক্সবাজার উপকূল, তিন পার্বত্য জেলা (রাঙ্গামাটি, খাগড়াছড়ি, বান্দরবান) ও কুমিল্লা-নোয়াখালী অঞ্চল।',
+    descEn: 'Southeastern Bangladesh encompassing Chattogram, Cox’s Bazar coast, the Chittagong Hill Tracts, Cumilla, and Noakhali–Feni.',
+  },
+  southwest: {
+    key: 'southwest',
+    labelBn: 'দক্ষিণ-পশ্চিমাঞ্চল',
+    labelEn: 'South-West',
+    descBn: 'খুলনা বিভাগ, সুন্দরবন উপকূলীয় অঞ্চল, পিরোজপুর-বরগুনা এবং পদ্মার দক্ষিণ-পশ্চিম তীরের ফরিদপুর-গোপালগঞ্জ অঞ্চল।',
+    descEn: 'Southwestern Bangladesh covering Khulna Division, the Sundarbans coast, Pirojpur–Barguna, and southwestern Padma basin districts.',
   },
 };
