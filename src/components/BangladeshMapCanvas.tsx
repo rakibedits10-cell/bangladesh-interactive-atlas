@@ -54,7 +54,7 @@ interface CameraState {
 const BASE_W = 800;
 const BASE_H = 1000;
 const MIN_ZOOM = 1;
-const MAX_ZOOM = 14;
+const MAX_ZOOM = 36;
 const ZOOM_STEP = 1.5;
 const DISTRICT_ZOOM_THRESHOLD = 1.35;
 const UPAZILA_ZOOM_THRESHOLD = 2.6;
@@ -651,10 +651,10 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
   useEffect(() => {
     if (!focusBBoxRequest) return;
     const { bbox, minZoom } = focusBBoxRequest;
-    const bw = Math.max(12, bbox[2] - bbox[0]);
-    const bh = Math.max(12, bbox[3] - bbox[1]);
-    const fitZoom = Math.min((BASE_W * 0.45) / bw, (BASE_H * 0.45) / bh);
-    const targetZoom = Math.max(minZoom, Math.min(8, Number(fitZoom.toFixed(2))));
+    const bw = Math.max(4, bbox[2] - bbox[0]);
+    const bh = Math.max(4, bbox[3] - bbox[1]);
+    const fitZoom = Math.min((BASE_W * 0.42) / bw, (BASE_H * 0.42) / bh);
+    const targetZoom = Math.max(minZoom, Math.min(26, Number(fitZoom.toFixed(2))));
     if (targetZoom <= 1.05) {
       animateCameraTo({ zoom: 1, vx: 0, vy: 0 });
       return;
@@ -1127,6 +1127,8 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
           isHovered: boolean;
           fontSize: number;
           text: string;
+          x: number;
+          y: number;
         }[],
         districtLabels: [] as {
           d: GeoDistrict;
@@ -1147,7 +1149,14 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
       isHovered: boolean;
       fontSize: number;
       text: string;
+      x: number;
+      y: number;
     }[] = [];
+
+    const upazilaZoomScale =
+      labelZoom <= 6
+        ? 1 / Math.pow(labelZoom, 0.58)
+        : (1 / Math.pow(6, 0.58)) * Math.pow(6 / labelZoom, 0.94);
 
     const makeEntry = (
       u: GeoUpazila,
@@ -1158,18 +1167,35 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
     ) => {
       const text = lang === 'bn' ? u.bnName : u.name;
       const baseFs = isSel ? 11.0 : isHov ? 9.8 : isNbr ? 9.2 : 8.1;
-      const fontSize = baseFs / Math.pow(labelZoom, 0.58);
-      const w = text.length * fontSize * 0.56 + fontSize * 0.7;
-      const h = fontSize * 1.4;
-      const padX = fontSize * 0.38;
-      const padY = fontSize * 0.28;
-      const box: BBox2D = [
-        u.cx - w / 2 - padX,
-        u.cy - h / 2 - padY,
-        u.cx + w / 2 + padX,
-        u.cy + h / 2 + padY,
-      ];
-      return { u, isSelected: isSel, isNeighbor: isNbr, isHovered: isHov, priority, fontSize, text, box };
+      let fontSize = baseFs * upazilaZoomScale;
+      const polyW = u.bbox[2] - u.bbox[0];
+      const polyH = u.bbox[3] - u.bbox[1];
+      if (!isSel && !isHov && labelZoom >= 6 && (polyW < 10 || polyH < 10)) {
+        const targetMaxW = Math.max(polyW * 1.08, fontSize * 2.1);
+        const estW = text.length * fontSize * 0.46;
+        if (estW > targetMaxW) {
+          const minFactor = labelZoom >= 12 ? 0.44 : 0.58;
+          fontSize = Math.max(fontSize * minFactor, fontSize * (targetMaxW / estW));
+        }
+      }
+      const charWidthFactor = labelZoom >= 6 ? 0.46 : 0.56;
+      const w = text.length * fontSize * charWidthFactor + fontSize * (labelZoom >= 6 ? 0.3 : 0.7);
+      const h = fontSize * (labelZoom >= 6 ? 1.2 : 1.4);
+      const padX = labelZoom >= 6 ? fontSize * 0.1 : fontSize * 0.38;
+      const padY = labelZoom >= 6 ? fontSize * 0.06 : fontSize * 0.28;
+      return {
+        u,
+        isSelected: isSel,
+        isNeighbor: isNbr,
+        isHovered: isHov,
+        priority,
+        fontSize,
+        text,
+        w,
+        h,
+        padX,
+        padY,
+      };
     };
 
     const candidates = upazilas
@@ -1196,13 +1222,13 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
       .filter((x): x is NonNullable<typeof x> => Boolean(x))
       .sort((a, b) => b.priority - a.priority || b.u.areaKm2 - a.u.areaKm2);
 
-    const minMajorRatio = labelZoom >= 5.5 ? 1.0 : 1.35;
-    const minMinorRatio = labelZoom >= 5.5 ? 0.4 : 0.55;
+    const minMajorRatio = labelZoom >= 12 ? 0 : labelZoom >= 8 ? 0.55 : labelZoom >= 5.5 ? 1.0 : 1.35;
+    const minMinorRatio = labelZoom >= 12 ? 0 : labelZoom >= 8 ? 0.22 : labelZoom >= 5.5 ? 0.4 : 0.55;
 
     for (const item of candidates) {
-      if (item.priority < 3) {
-        const polyW = item.u.bbox[2] - item.u.bbox[0];
-        const polyH = item.u.bbox[3] - item.u.bbox[1];
+      const polyW = item.u.bbox[2] - item.u.bbox[0];
+      const polyH = item.u.bbox[3] - item.u.bbox[1];
+      if (item.priority < 3 && (minMajorRatio > 0 || minMinorRatio > 0)) {
         if (
           Math.max(polyW, polyH) < item.fontSize * minMajorRatio ||
           Math.min(polyW, polyH) < item.fontSize * minMinorRatio
@@ -1210,9 +1236,55 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
           continue;
         }
       }
-      if (item.priority >= 3.5 || !occupied.some((b) => boxesOverlap(b, item.box))) {
-        occupied.push(item.box);
-        upazilaLabels.push(item);
+
+      const offsets: [number, number][] =
+        labelZoom >= 6 && item.priority < 3.5
+          ? [
+              [0, 0],
+              [0, -item.h * 0.55],
+              [0, item.h * 0.55],
+              [-item.w * 0.18, 0],
+              [item.w * 0.18, 0],
+              [-item.w * 0.15, -item.h * 0.5],
+              [item.w * 0.15, item.h * 0.5],
+              [0, -item.h * 1.05],
+              [0, item.h * 1.05],
+            ]
+          : [[0, 0]];
+
+      for (const [dx, dy] of offsets) {
+        const cx = item.u.cx + dx;
+        const cy = item.u.cy + dy;
+        if (
+          dx !== 0 || dy !== 0
+            ? cx < item.u.bbox[0] - item.w * 0.32 ||
+              cx > item.u.bbox[2] + item.w * 0.32 ||
+              cy < item.u.bbox[1] - item.h * 0.35 ||
+              cy > item.u.bbox[3] + item.h * 0.35
+            : false
+        ) {
+          continue;
+        }
+        const box: BBox2D = [
+          cx - item.w / 2 - item.padX,
+          cy - item.h / 2 - item.padY,
+          cx + item.w / 2 + item.padX,
+          cy + item.h / 2 + item.padY,
+        ];
+        if (item.priority >= 3.5 || !occupied.some((b) => boxesOverlap(b, box))) {
+          occupied.push(box);
+          upazilaLabels.push({
+            u: item.u,
+            isSelected: item.isSelected,
+            isNeighbor: item.isNeighbor,
+            isHovered: item.isHovered,
+            fontSize: item.fontSize,
+            text: item.text,
+            x: cx,
+            y: cy,
+          });
+          break;
+        }
       }
     }
 
@@ -1226,6 +1298,11 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
       y: number;
     }[] = [];
 
+    const distScale =
+      labelZoom <= 6
+        ? 1 / Math.pow(labelZoom, 0.56)
+        : (1 / Math.pow(6, 0.56)) * Math.pow(6 / labelZoom, 0.9);
+
     const distCandidates = districts
       .map((d) => {
         const matchesFilter = doesDistrictMatchFilter(d);
@@ -1233,7 +1310,7 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
         const isParentOfSelected =
           selectedUpazila?.districtId === d.id || selectedDistrictId === d.id;
 
-        const fontSize = (isParentOfSelected ? 9.6 : 9.1) / Math.pow(labelZoom, 0.56);
+        const fontSize = (isParentOfSelected ? 9.6 : 9.1) * distScale;
         const text = lang === 'bn' ? `${d.bnName} জেলা` : `${d.name} Dist.`;
         const w = text.length * fontSize * 0.58 + fontSize * 0.85;
         const h = fontSize * 1.45;
@@ -2844,7 +2921,7 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
               {/* Clean Dark-Slate Upazila Labels */}
               <g className="pointer-events-none select-none">
                 {visibleUpazilaLabels.upazilaLabels.map(
-                  ({ u, isSelected, isNeighbor, fontSize, text }) => {
+                  ({ u, isSelected, isNeighbor, fontSize, text, x, y }) => {
                     const isConquered = conquestMode && Boolean(conqueredUpazilaIds?.has(u.id));
                     const fillColor =
                       isSelected || isConquered
@@ -2870,15 +2947,15 @@ export const BangladeshMapCanvas: React.FC<BangladeshMapCanvasProps> = ({
                     return (
                       <text
                         key={`ulbl-${u.id}`}
-                        x={u.cx}
-                        y={u.cy}
+                        x={x}
+                        y={y}
                         textAnchor="middle"
                         dominantBaseline="central"
                         fontSize={fontSize}
                         fontWeight={isSelected || isConquered ? '700' : '600'}
                         fill={fillColor}
                         stroke={strokeColor}
-                        strokeWidth={(isSelected || isConquered ? 2.8 : 2.2) / Math.pow(labelZoom, 0.58)}
+                        strokeWidth={fontSize * (isSelected || isConquered ? 0.3 : 0.25)}
                         style={{ paintOrder: 'stroke' }}
                       >
                         {`${isConquered ? '✓ ' : ''}${text}`}
